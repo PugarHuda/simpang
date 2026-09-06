@@ -5,7 +5,7 @@ import { GUARDS, MODELS } from './config'
 // Schema sengaja polos: tanpa .int()/.max()/tuple. Backend structured-output yang
 // ketat (Anthropic, OpenAI, Gemini, vLLM grammar) menolak minimum/maxLength/items[].
 // Batasan panjang & bentuk ditegakkan di qualityGate.
-const Branch = z.object({
+const BranchSchema = z.object({
   label: z.string(),
   sketch: z.string(),
   filesTouched: z.number(),
@@ -14,9 +14,11 @@ const Branch = z.object({
   // Di-generate DI SCAN YANG SAMA. Itulah kenapa KILL/PIN instan:
   // tidak ada panggilan model kedua saat user menekan tombol.
   constraintIfPinned: z.string(),
-  constraintIfKilled: z.string(),
 })
-export type Branch = z.infer<typeof Branch>
+// constraintIfKilled TIDAK diminta dari model: model (luna, mistral) terbukti menukar
+// larangan antar-cabang. Dua cabang saling eksklusif, jadi kill = larang label ini +
+// paksa cabang lawan. Diturunkan deterministik di qualityGate.
+export type Branch = z.infer<typeof BranchSchema> & { constraintIfKilled: string }
 
 export const DivergenceSet = z.object({
   etaSeconds: z.number(),
@@ -25,12 +27,12 @@ export const DivergenceSet = z.object({
       id: z.string(),
       axis: z.string(),
       question: z.string(),
-      branches: z.array(Branch),
+      branches: z.array(BranchSchema),
     })
   ),
 })
 export type DivergenceSet = z.infer<typeof DivergenceSet>
-export type Divergence = DivergenceSet['divergences'][number]
+export type Divergence = Omit<DivergenceSet['divergences'][number], 'branches'> & { branches: Branch[] }
 
 const SCAN_PROMPT = `You are a branch predictor for an AI coding agent, not an assistant.
 
@@ -52,10 +54,8 @@ id: short snake_case slug. axis: a 1-3 word noun phrase naming the decision
 (e.g. "storage", "session expiry"), never a question or a sentence fragment.
 label: at most 4 words, concrete (e.g. "redis, new dep"). sketch: at most 12 words.
 question: at most 10 words. Be terse everywhere; latency matters.
-constraintIfPinned: plain-English imperative sentence forcing THIS SAME branch.
-constraintIfKilled: plain-English imperative sentence forbidding THIS SAME branch
-(e.g. for branch "redis": pinned = "Use redis for sessions.", killed = "Do not use redis.").
-No code, no comment markers.
+constraintIfPinned: plain-English imperative sentence forcing THIS SAME branch
+(e.g. for branch "redis": "Use redis for session storage."). No code, no comment markers.
 etaSeconds: honest estimate of how long a coding agent needs for the whole task.
 
 Output only decisions the user would be annoyed to discover 90 seconds from now.
@@ -72,10 +72,11 @@ export function qualityGate(set: DivergenceSet): Divergence[] {
       id: d.id.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `d${Math.random().toString(36).slice(2, 6)}`,
       axis: d.axis.slice(0, 24),
       question: d.question.slice(0, 120),
-      branches: d.branches.map((b) => ({
+      branches: d.branches.map((b, i, all) => ({
         ...b, label: b.label.slice(0, 40), sketch: b.sketch.slice(0, 160),
         filesTouched: Math.round(b.filesTouched), confidence: Math.min(1, Math.max(0, b.confidence)),
-        constraintIfPinned: clean(b.constraintIfPinned), constraintIfKilled: clean(b.constraintIfKilled),
+        constraintIfPinned: clean(b.constraintIfPinned),
+        constraintIfKilled: `Do NOT choose "${b.label.slice(0, 40)}". ${clean(all[1 - i].constraintIfPinned)}`,
       })),
     }))
     .filter((d) => {
