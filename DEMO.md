@@ -1,5 +1,9 @@
 # SIMPANG — demo video script (5:00)
 
+> There is now an automated version of this: `video/` records production with Playwright and
+> composes the finished cut with ffmpeg (`video/README.md`). Keep this script for a
+> hand-recorded take, or as the shot list behind `video/script.json`.
+
 Target: 5 minutes. Screen recording with voice-over. Shoot in this order; the two
 long agent runs (§2 and §5) are the only parts you cannot speed up, so start them
 early and talk over them.

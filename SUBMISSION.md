@@ -6,6 +6,7 @@
 |---|---|
 | **Live** | https://simpang.vercel.app |
 | **Code** | https://github.com/PugarHuda/simpang |
+| **Demo video** | `video/out/simpang-demo.mp4` — 4:26, built by `video/` from a real production session (see `video/README.md`) |
 | **Health** | https://simpang.vercel.app/api/health — real status of model, store, x402 facilitator, Bazaar, agent wallet |
 | **Stack** | Next 16 (App Router, SSE) · AI SDK 7 · Venice (Claude Sonnet 5, gpt-56-luna, gpt-4o-mini) · x402 v2 official SDK · Upstash Redis · Vercel `sin1` |
 | **Networks** | Base Sepolia (USDC), facilitator `x402.org`, x402 Bazaar via Coinbase CDP |
