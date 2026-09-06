@@ -1,0 +1,1 @@
+{ "name": "acme", "version": "1.4.2", "dependencies": { "jsonwebtoken": "^9" } }
