@@ -6,6 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { x402Client } from '@x402/core/client'
 import { ExactEvmScheme } from '@x402/evm/exact/client'
 import { wrapFetchWithPayment, x402HTTPClient } from '@x402/fetch'
+import { findPaidResources } from './bazaar'
 
 /** Tool data hidup untuk agent. Tanpa ini agent hanya bisa mengerjakan repo dan
  *  menjawab "saya tidak punya akses data" untuk prompt seperti analisa harga.
@@ -94,6 +95,19 @@ export function researchTools(emit: Emit) {
     },
   })
 
+  // Katalog x402 Bazaar: temukan endpoint data/AI berbayar, lalu beli dengan paidFetch.
+  tools.findPaidData = tool({
+    description: 'Search the x402 Bazaar catalog of paid data and AI endpoints (price in USDC, network, description). ' +
+      `Prefer network "${process.env.X402_NETWORK ?? 'eip155:84532'}" (the agent wallet holds testnet USDC there); ` +
+      'then call paidFetch with the resource url to buy it.',
+    inputSchema: z.object({ query: z.string(), network: z.string().optional() }),
+    execute: async ({ query, network }) => {
+      emit({ type: 'tool', name: 'bazaar', path: query })
+      try { return await findPaidResources(query, network) }
+      catch (e) { return `bazaar unreachable: ${String((e as Error).message ?? e).slice(0, 160)}` }
+    },
+  })
+
   const buyerKey = process.env.X402_BUYER_PRIVATE_KEY as `0x${string}` | undefined
   if (buyerKey) {
     const account = privateKeyToAccount(buyerKey)
@@ -103,16 +117,25 @@ export function researchTools(emit: Emit) {
     tools.paidFetch = tool({
       description: 'GET a URL that may require x402 payment (paid data or AI endpoints). The agent wallet pays ' +
         `automatically (USDC on Base Sepolia, address ${account.address}). Returns the body and the payment receipt.`,
-      inputSchema: z.object({ url: z.string() }),
-      execute: async ({ url }) => {
+      inputSchema: z.object({
+        url: z.string(),
+        method: z.enum(['GET', 'POST']).optional().describe('POST when the resource declares a JSON body input'),
+        body: z.record(z.string(), z.unknown()).optional().describe('JSON body for POST'),
+      }),
+      execute: async ({ url, method, body }) => {
         try { await assertPublicUrl(url) } catch (e) { return `refused: ${(e as Error).message}` }
         emit({ type: 'tool', name: 'paid', path: url })
-        const res = await pay(url, { headers: { accept: 'application/json, text/plain;q=0.9, */*;q=0.5' }, redirect: 'manual' })
+        const res = await pay(url, {
+          method: method ?? (body ? 'POST' : 'GET'),
+          headers: { accept: 'application/json, text/plain;q=0.9, */*;q=0.5', ...(body ? { 'content-type': 'application/json' } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+          redirect: 'manual',
+        })
         let receipt: unknown = null
         try { receipt = http.getPaymentSettleResponse((n) => res.headers.get(n)) } catch { /* tidak berbayar */ }
-        const body = (await res.text()).slice(0, 8000)
+        const text = (await res.text()).slice(0, 8000)
         if (receipt) emit({ type: 'paid', url, receipt })
-        return { status: res.status, body, receipt }
+        return { status: res.status, body: text, receipt }
       },
     })
   }

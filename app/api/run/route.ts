@@ -5,6 +5,7 @@ import { scan, type Divergence } from '@/lib/divergence'
 import { store, type Run } from '@/lib/store'
 import { listFiles, repoContext, workspace } from '@/lib/repo'
 import { researchTools } from '@/lib/tools'
+import { rateLimited } from '@/lib/ratelimit'
 
 export const maxDuration = 300
 
@@ -12,12 +13,14 @@ type Emit = (e: Record<string, unknown>) => void
 const Body = z.object({ prompt: z.string().trim().min(3).max(2000) })
 
 export async function POST(req: Request) {
+  const limited = await rateLimited(req)   // endpoint ini membakar uang model; terbuka di internet
+  if (limited) return limited
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: 'prompt required (3-2000 chars)' }, { status: 400 })
   if (!HAS_MODEL) return Response.json({ error: 'no model provider configured (VENICE_API_KEY etc.)' }, { status: 503 })
   const { prompt } = parsed.data
   const runId = crypto.randomUUID()
-  const run = store.create(runId, prompt)
+  const run = store.create(runId, prompt, req.headers.get('x-simpang-client') ?? '')
   await store.saveBase(run)
 
   const stream = new ReadableStream({
@@ -141,7 +144,9 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
     // SDK 7 melarang pesan system di tengah messages; yang benar: timpa `instructions` per step.
     prepareStep: async ({ stepNumber }) => {
       emit({ type: 'step', n: stepNumber })
-      const pending = await store.drain(run.id)
+      const [pending, fresh] = await Promise.all([store.drain(run.id), store.get(run.id)])
+      // Pemilik melihat aksi yang datang dari orang lain (pohon multiplayer) tanpa polling.
+      if (fresh && Object.keys(fresh.actions).length) emit({ type: 'actions', actions: fresh.actions })
       if (pending.length) {
         steering.push(...pending)
         emit({ type: 'applied', constraints: pending })

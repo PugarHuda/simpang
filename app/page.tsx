@@ -23,6 +23,18 @@ type Other = {
 type Ready = { divergenceId: string; branchIdx: number; label: string; text: string }
 type Result = { calibration: number | null; prefetch: Ready[]; elapsedMs: number }
 type Directive = { text: string; at: number; applied: boolean }
+type Pref = { constraint: string; count: number; standing: boolean }
+
+// Identitas klien untuk atribusi (pemilik run vs helper lewat [tab]). Bukan autentikasi.
+const clientId = () => {
+  try {
+    const k = 'simpang.client'
+    let v = localStorage.getItem(k)
+    if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v) }
+    return v
+  } catch { return 'anon' }
+}
+const hdr = () => ({ 'x-simpang-client': clientId() })
 
 const Md = ({ children }: { children: string }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown></div>
@@ -84,7 +96,7 @@ export default function Page() {
     if (helping) setOther((o) => o && { ...o, actions: { ...o.actions, [divergenceId]: { verb, branchIdx } } })
     else setActions((a) => ({ ...a, [divergenceId]: { verb, branchIdx } }))
     const r = await fetch('/api/steer', {
-      method: 'POST',
+      method: 'POST', headers: hdr(),
       body: JSON.stringify({ runId: helping?.runId ?? runIdRef.current, divergenceId, branchIdx, verb }),
     }).then((x) => x.json())
     if (r.error && r.status !== 'late') return flash(`✗ ${r.error}`)
@@ -97,13 +109,14 @@ export default function Page() {
       : `${verb === 'kill' ? 'killed' : 'pinned'} · injected: "${r.injected}"`)
   }, [flash])
 
-  const fork = useCallback(async () => {
-    if (!late) return
-    const target = late
+  // Fork: koreksi pangkasan terlambat ([f]) ATAU "terapkan" cabang prefetch yang sudah dihitung.
+  const fork = useCallback(async (explicit?: { divergenceId: string; branchIdx: number }) => {
+    const target = explicit ?? late
+    if (!target) return
     setLate(null)
     flash('↻ forking…', 60000)
     const res = await fetch('/api/fork', {
-      method: 'POST',
+      method: 'POST', headers: hdr(),
       body: JSON.stringify({ runId: runIdRef.current, ...target }),
     })
     if (!res.ok) return flash(`✗ fork: ${(await res.json()).error}`)
@@ -208,11 +221,12 @@ export default function Page() {
     ;(document.activeElement as HTMLElement | null)?.blur()   // supaya hotkey tidak mengetik ke input
     void fetch('/api/steer').catch(() => {})   // panaskan route steer: tombol pertama harus < 1 detik
 
-    const res = await fetch('/api/run', { method: 'POST', body: JSON.stringify({ prompt }) })
+    const res = await fetch('/api/run', { method: 'POST', headers: hdr(), body: JSON.stringify({ prompt }) })
     if (!res.ok) {
       setErrors([(await res.json().catch(() => ({ error: `HTTP ${res.status}` }))).error])
       return setStatus('done')
     }
+    let finished = false
     const reader = res.body!.getReader()
     const dec = new TextDecoder()
     let buf = ''
@@ -238,6 +252,7 @@ export default function Page() {
           : e.name === 'search' ? `searching the web: ${e.path}`
           : e.name === 'market' ? `fetching market data: ${e.path}`
           : e.name === 'paid' ? `buying via x402: ${e.path}`
+          : e.name === 'bazaar' ? `searching x402 bazaar: ${e.path}`
           : `${e.name} ${e.path}`)
         if (e.type === 'paid') flash(`x402 paid · ${e.url} · tx ${(e.receipt?.transaction ?? '').slice(0, 10)}…`, 5000)
         if (e.type === 'step') note(`step ${e.n}`)
@@ -250,12 +265,45 @@ export default function Page() {
           flash(`applied: ${e.constraints.join(' / ')}`)
         }
         if (e.type === 'prefetch' && e.status === 'done') setPrefetched((p) => [...p, e.label])
+        if (e.type === 'actions') {
+          // Aksi dari helper ([tab] orang lain) muncul di pohon pemilik dengan tanda 🤝.
+          const incoming = e.actions as Record<string, Act>
+          setActions((a) => {
+            const next = { ...a }
+            for (const [id, act] of Object.entries(incoming)) if (act.by === 'helper' || !next[id]) next[id] = act
+            return next
+          })
+          if (Object.values(incoming).some((a) => a.by === 'helper')) flash('🤝 seseorang ikut memangkas pohonmu')
+        }
         if (e.type === 'error') setErrors((x) => [...x, e.message])
         if (e.type === 'patch') { setDiff(e.diff ?? ''); if (e.diff) note('diff ready · [d] show') }
-        if (e.type === 'done') { setResult({ calibration: e.calibration, prefetch: e.prefetch, elapsedMs: e.elapsedMs }); setStatus('done') }
+        if (e.type === 'done') { finished = true; setResult({ calibration: e.calibration, prefetch: e.prefetch, elapsedMs: e.elapsedMs }); setStatus('done') }
       }
     }
+    if (!finished) {
+      // Koneksi SSE putus (jaringan, timeout function): ambil state terakhir dari server, jangan biarkan "running" selamanya.
+      const state = await fetch(`/api/others?runId=${runIdRef.current}`).then((x) => (x.ok ? x.json() : null)).catch(() => null)
+      if (state) {
+        if (state.output) setOut(state.output)
+        if (state.diff) setDiff(state.diff)
+        setCommitted(state.committed ?? {})
+        setErrors((x) => [...x, state.done ? 'koneksi terputus, hasil dipulihkan dari server' : 'koneksi terputus sebelum agent selesai'])
+      } else setErrors((x) => [...x, 'koneksi terputus'])
+      setStatus('done')
+    }
+    void loadPrefs()
   }
+
+  const [prefs, setPrefs] = useState<Pref[]>([])
+  const loadPrefs = useCallback(async () => {
+    const r = await fetch('/api/prefs').catch(() => null)
+    if (r?.ok) setPrefs((await r.json()).prefs)
+  }, [])
+  useEffect(() => { void loadPrefs() }, [loadPrefs])
+  const forget = useCallback(async (constraint: string) => {
+    await fetch('/api/prefs', { method: 'DELETE', body: JSON.stringify({ constraint }) })
+    void loadPrefs()
+  }, [loadPrefs])
 
   const secs = (t / 1000).toFixed(1)
   const lastKey = KEY_LABELS[Math.max(0, divs.length * 2 - 1)]
@@ -420,6 +468,12 @@ export default function Page() {
                 <button onClick={() => setOpenReady(openReady === i ? null : i)} className="text-neutral-400 hover:text-neutral-200 text-left">
                   {openReady === i ? '▾' : '▸'} {p.label}
                 </button>
+                <button
+                  onClick={() => fork({ divergenceId: p.divergenceId, branchIdx: p.branchIdx })}
+                  data-testid={`apply-${p.divergenceId}-${p.branchIdx}`}
+                  className="ml-2 px-1.5 text-[11px] border border-emerald-900 rounded text-emerald-400 hover:bg-emerald-900/30"
+                  title="jadikan cabang ini jawaban utama (fork di working copy yang sama)"
+                >terapkan</button>
                 {openReady === i && (
                   <div className="text-[12px] text-neutral-500 border border-neutral-900 rounded p-2 mt-1"><Md>{p.text}</Md></div>
                 )}
@@ -432,6 +486,22 @@ export default function Page() {
           </div>
         )}
       </div>
+
+      {status !== 'running' && prefs.length > 0 && (
+        <div className="mx-auto max-w-4xl mt-6 border border-neutral-900 rounded px-3 py-2 text-[12px] space-y-1" data-testid="prefs">
+          <div className="text-neutral-500">
+            preferensi yang dipelajari · ≥3× kill = tidak ditanya lagi di scan berikutnya
+          </div>
+          {prefs.slice(0, 8).map((p) => (
+            <div key={p.constraint} className="flex items-baseline gap-2">
+              <span className={p.standing ? 'text-emerald-400' : 'text-neutral-600'}>{p.count}×</span>
+              <span className={p.standing ? 'text-neutral-200' : 'text-neutral-400'}>{p.constraint}</span>
+              <button onClick={() => forget(p.constraint)} data-testid="forget"
+                className="ml-auto text-neutral-600 hover:text-red-300">lupakan</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-[92vw] bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-[12px] text-neutral-300" data-testid="toast" role="status">

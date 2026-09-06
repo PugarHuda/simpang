@@ -107,6 +107,60 @@ const after = await post('/api/steer', { runId, divergenceId: d0.id, branchIdx: 
 a(after.status === 'finished', 'steer sejalan setelah selesai -> finished (masuk prior)')
 const lateR = await post('/api/steer', { runId, divergenceId: d0.id, branchIdx: 1, verb: 'kill' }).then((r) => r.json())
 a(lateR.status === 'late' && lateR.forkable, 'steer bertentangan setelah selesai -> late + forkable')
+
+// 7b. Atribusi: run ini dibuat tanpa client id -> semua aksi 'helper'. Dengan header pemilik -> 'owner'.
+a(state.actions[d0.id]?.by === 'helper', 'atribusi: steer tanpa client id pemilik tercatat sebagai helper')
+const owned = await fetch(`${BASE}/api/run`, { method: 'POST', headers: { 'x-simpang-client': 'owner-A' }, body: JSON.stringify({ prompt: 'refactor the auth system to use sessions' }) })
+const ordr = owned.body.getReader(); let obuf = '', oid = '', oscan = null
+outer2: for (;;) {
+  const { done, value } = await ordr.read(); if (done) break
+  obuf += dec.decode(value, { stream: true }); const parts = obuf.split('\n\n'); obuf = parts.pop()
+  for (const p of parts) { if (!p.startsWith('data: ')) continue; const e = JSON.parse(p.slice(6)); if (e.type === 'run') oid = e.runId; if (e.type === 'scan') { oscan = e; break outer2 } if (e.type === 'done') break outer2 }
+}
+if (oscan?.divergences.length) {
+  const od = oscan.divergences[0].id
+  await fetch(`${BASE}/api/steer`, { method: 'POST', headers: { 'x-simpang-client': 'owner-A' }, body: JSON.stringify({ runId: oid, divergenceId: od, branchIdx: 0, verb: 'kill' }) })
+  const st = await fetch(`${BASE}/api/others?runId=${oid}`).then((r) => r.json())
+  a(st.actions[od]?.by === 'owner', 'atribusi: steer dengan client id pemilik tercatat sebagai owner')
+  if (oscan.divergences[1]) {
+    const od2 = oscan.divergences[1].id
+    await fetch(`${BASE}/api/steer`, { method: 'POST', headers: { 'x-simpang-client': 'helper-B' }, body: JSON.stringify({ runId: oid, divergenceId: od2, branchIdx: 0, verb: 'kill' }) })
+    const st2 = await fetch(`${BASE}/api/others?runId=${oid}`).then((r) => r.json())
+    a(st2.actions[od2]?.by === 'helper', 'atribusi: steer dari client lain tercatat sebagai helper')
+  }
+}
+ordr.cancel().catch(() => {})
+
+// 7c. Preferensi yang dipelajari terlihat dan bisa dilupakan.
+const prefs1 = await fetch(`${BASE}/api/prefs`).then((r) => r.json())
+const killedC = d0.branches[0].constraintIfKilled
+const mine = prefs1.prefs.find((p) => p.constraint === killedC)
+a(mine && mine.count >= 1, `prefs: constraint yang dibunuh tercatat (${mine?.count}x, standing=${mine?.standing})`)
+a((await fetch(`${BASE}/api/prefs`, { method: 'DELETE', body: JSON.stringify({ constraint: killedC }) })).ok, 'prefs: DELETE ok')
+const prefs2 = await fetch(`${BASE}/api/prefs`).then((r) => r.json())
+a(!prefs2.prefs.some((p) => p.constraint === killedC), 'prefs: constraint dilupakan')
+// 7d. Health: status sungguhan tiap integrasi (model, store, facilitator, bazaar, wallet agent).
+const health = await fetch(`${BASE}/api/health`).then(async (r) => ({ status: r.status, ...(await r.json()) }))
+console.log('    health ->', JSON.stringify({ status: health.status, store: health.store?.kind, x402: health.x402?.ok, bazaar: health.bazaar, wallet: health.agentWallet }))
+a(health.model === 'configured' && health.store?.ok && health.x402?.ok, `health: model+store+facilitator ok (bazaar reachable=${health.bazaar?.reachable})`)
+
+// 7e. SIMPANG sebagai PENJUAL untuk agent lain: /api/paid/scan di balik x402, terdeklarasi ke Bazaar.
+const ps402 = await post('/api/paid/scan', { prompt: 'add rate limiting to the login endpoint' })
+a(ps402.status === 402, 'paid scan: tanpa pembayaran -> 402')
+const psChallenge = JSON.parse(Buffer.from(ps402.headers.get('payment-required') ?? '', 'base64').toString())
+const psReq = psChallenge.accepts[0]
+a(psReq.amount === '20000' && psReq.network === 'eip155:84532', `paid scan: harga ${Number(psReq.amount) / 1e6} USDC di ${psReq.network}`)
+a(JSON.stringify(psChallenge).includes('bazaar'), 'paid scan: deklarasi discovery Bazaar ikut di challenge')
+if (process.env.X402_TEST_BUYER_KEY) {
+  const buyer = privateKeyToAccount(process.env.X402_TEST_BUYER_KEY)
+  const bc = new x402Client().register('eip155:*', new ExactEvmScheme(buyer))
+  const bpay = wrapFetchWithPayment(fetch, bc)
+  const bought = await bpay(`${BASE}/api/paid/scan`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'add rate limiting to the login endpoint' }) })
+  const bj = await bought.json().catch(() => ({}))
+  const bs = bought.status === 200 ? new x402HTTPClient(bc).getPaymentSettleResponse((n) => bought.headers.get(n)) : null
+  a(bought.status === 200 && Array.isArray(bj.divergences) && bj.divergences.length > 0, `paid scan: dibeli agent lain -> ${bj.divergences?.length} divergensi dalam ${bj.scanMs}ms, tx ${bs?.transaction}`)
+}
+
 // 8. Prompt non-kode: agent harus memakai tool data hidup, bukan bilang "tidak punya akses".
 const r2 = await post('/api/run', { prompt: 'analisa harga bitcoin 7 hari terakhir dalam USD, sebutkan angka harian' })
 const rd2 = r2.body.getReader(); let buf2 = '', tools = [], text2 = '', done2 = null

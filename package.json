@@ -7,14 +7,17 @@
     "build": "next build",
     "start": "next start",
     "test": "playwright test",
-    "test:api": "node tests/api.test.mjs"
+    "test:api": "node tests/api.test.mjs",
+    "test:ratelimit": "node tests/ratelimit.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.44",
     "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.4",
     "@x402/core": "^2.25.0",
     "@x402/evm": "^2.25.0",
+    "@x402/extensions": "^2.25.0",
     "@x402/fetch": "^2.25.0",
     "@x402/next": "^2.25.0",
     "ai": "^7.0.92",

@@ -23,6 +23,7 @@ export default defineConfig({
       ...process.env,
       SIMPANG_MAIN_MODEL: process.env.SIMPANG_TEST_MAIN_MODEL ?? 'qwen3-coder-480b-a35b-instruct-turbo',
       SIMPANG_FREE_BRANCHES: '2',
+      SIMPANG_RUN_LIMIT: '60',   // suite ini menjalankan ~7 run dari satu IP dalam satu jam
     },
   },
 })

@@ -1,7 +1,7 @@
 'use client'
 import type { Divergence } from '@/lib/divergence'
 
-export type Act = { verb: 'kill' | 'pin'; branchIdx: number }
+export type Act = { verb: 'kill' | 'pin'; branchIdx: number; by?: 'owner' | 'helper' }
 
 /** Label tombol per cabang, urut baris angka fisik: 12 tombol = 6 divergensi x 2 cabang. */
 export const KEY_LABELS = '1234567890-='.split('')
@@ -72,7 +72,12 @@ export function Tree({
                     ].join(' ')}
                   >
                     <span className="text-neutral-700 w-4">{key}</span>
-                    <span className="w-44 md:w-52 truncate text-neutral-200">{b.label}</span>
+                    <span className="w-44 md:w-52 truncate text-neutral-200">
+                      {b.label}
+                      {(killed || pinned) && act?.by === 'helper' && (
+                        <span className="ml-1 text-sky-400" title="dipangkas orang lain lewat [tab]" data-testid={`helped-${d.id}-${bi}`}>🤝</span>
+                      )}
+                    </span>
                     <span className="hidden sm:inline w-20 tabular-nums text-neutral-600">{b.filesTouched > 0 ? `~${b.filesTouched} files` : ''}</span>
                     <span className="hidden sm:inline w-14 tabular-nums text-neutral-600">{b.costUsd > 0 ? `$${b.costUsd.toFixed(2)}` : ''}</span>
                     <Bar v={b.confidence} />

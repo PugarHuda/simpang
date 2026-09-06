@@ -4,7 +4,7 @@ import { Redis } from '@upstash/redis'
 import type { Divergence } from './divergence'
 import { GUARDS } from './config'
 
-export type Action = { verb: 'kill' | 'pin'; branchIdx: number; at: number }
+export type Action = { verb: 'kill' | 'pin'; branchIdx: number; at: number; by?: 'owner' | 'helper' }
 export type Prefetch = {
   divergenceId: string; branchIdx: number; label: string
   text: string; status: 'running' | 'done' | 'dropped'
@@ -15,6 +15,7 @@ export type Prefetch = {
  *  supaya tidak ada read-modify-write yang saling menimpa. */
 export type RunBase = {
   id: string
+  owner: string                         // client id pemilik run (header x-simpang-client)
   prompt: string
   divergences: Divergence[]
   etaSeconds: number
@@ -46,6 +47,8 @@ interface Backend {
   latestActive(exclude: string): Promise<string | undefined>
   bumpPrior(constraint: string): Promise<number>
   standing(): Promise<string[]>
+  priorAll(): Promise<Record<string, number>>
+  forgetPrior(constraint: string): Promise<void>
 }
 
 /* ------------------------------------------------------------- redis ---- */
@@ -107,6 +110,11 @@ function redisBackend(url: string, token: string): Backend {
       const all = await r.hgetall<Record<string, number>>('prior')
       return Object.entries(all ?? {}).filter(([, n]) => Number(n) >= 3).map(([c]) => c)
     },
+    async priorAll() {
+      const all = await r.hgetall<Record<string, number>>('prior')
+      return Object.fromEntries(Object.entries(all ?? {}).map(([c, n]) => [c, Number(n)]))
+    },
+    async forgetPrior(c) { await r.hdel('prior', c) },
   }
 }
 
@@ -150,6 +158,12 @@ function memoryBackend(): Backend {
       return prior.get(c)!
     },
     async standing() { return [...prior.entries()].filter(([, n]) => n >= 3).map(([c]) => c) },
+    async priorAll() { return Object.fromEntries(prior) },
+    async forgetPrior(c) {
+      prior.delete(c)
+      fs.mkdirSync(path.dirname(PRIOR_FILE), { recursive: true })
+      fs.writeFileSync(PRIOR_FILE, JSON.stringify(Object.fromEntries(prior), null, 2))
+    },
   }
 }
 
@@ -158,9 +172,9 @@ const backend: Backend = REDIS_URL && REDIS_TOKEN ? redisBackend(REDIS_URL, REDI
 
 export const store = {
   ...backend,
-  create(id: string, prompt: string): Run {
+  create(id: string, prompt: string, owner = ''): Run {
     return {
-      id, prompt, divergences: [], etaSeconds: 0, prefetch: [], output: '', diff: '', startedAt: Date.now(),
+      id, owner, prompt, divergences: [], etaSeconds: 0, prefetch: [], output: '', diff: '', startedAt: Date.now(),
       actions: {}, committed: {}, unlockedCount: 0, done: false,
     }
   },

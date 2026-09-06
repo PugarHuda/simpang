@@ -50,6 +50,19 @@ test('kill mengubah eksekusi: steer -> injected -> commit ke cabang lawan -> kal
   await expect(page.getByTestId('diff')).toContainText(/diff --git a\/.+ b\/.+/)
   await expect(page.getByTestId('diff')).toContainText('+++ b/')
   await expect(page.getByTestId('diff')).not.toContainText('.simpang/runs')   // path working copy tidak bocor ke header
+
+  // Preferensi yang dipelajari terlihat setelah run (kill barusan = 1x) dan bisa dilupakan.
+  await expect(page.getByTestId('prefs')).toBeVisible()
+  await expect(page.getByTestId('prefs')).toContainText('lupakan')
+
+  // Cabang prefetch yang selamat bisa DITERAPKAN: fork di working copy yang sama, bukan sekadar dibaca.
+  const apply = page.locator('[data-testid^="apply-"]').first()
+  if (await apply.isVisible()) {
+    test.setTimeout(540_000)
+    await apply.click()
+    await expect(page.getByTestId('toast')).toContainText('forking')
+    await expect(page.getByTestId('toast')).toContainText('forked · diff diperbarui', { timeout: 240_000 })
+  }
 })
 
 test('pangkasan terlambat tidak menguap: late -> [f] fork merevisi di working copy yang sama', async ({ page }) => {
@@ -94,6 +107,10 @@ test('pohon multiplayer: [tab] mengambil run orang lain dan pangkasanmu masuk ke
 
   const state = await request.get(`/api/others?runId=${theirs.runId}`).then((r) => r.json())
   expect(Object.keys(state.actions)).toHaveLength(1)
+  // Atribusi: pangkasan dari browser lain tercatat sebagai helper, dan pemilik melihat tanda 🤝
+  // di pohonnya lewat event `actions` di batas step berikutnya (tanpa polling).
+  expect(Object.values(state.actions as Record<string, { by?: string }>)[0].by).toBe('helper')
+  await expect(a.locator('[data-testid^="helped-"]').first()).toBeVisible({ timeout: 150_000 })
   await b.keyboard.press('Tab')
   await expect(b.getByTestId('helping')).toHaveCount(0)
   await a.close(); await b.close()

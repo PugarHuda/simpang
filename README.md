@@ -89,6 +89,25 @@ berikutnya 0.01 USDC lewat **x402 v2 dengan SDK resmi**:
 - `steer` ke divergensi yang terkunci ditolak 402 di server, bukan hanya
   disembunyikan UI.
 
+## SIMPANG di pasar x402: pembeli DAN penjual
+
+- **Penjual untuk agent lain.** `POST /api/paid/scan` menjual divergence scan
+  (0.02 USDC, Base Sepolia) di balik `withX402`, dan mendeklarasikan
+  `declareDiscoveryExtension` (skema input/output) supaya terindeks di
+  **x402 Bazaar** saat facilitator men-settle pembayarannya. Agent lain bisa
+  menemukan dan membelinya tanpa tahu apa-apa soal SIMPANG.
+- **Pembeli.** Tool `findPaidData` mencari katalog Bazaar lewat
+  `BazaarClientExtension` dari `@x402/extensions` (bukan URL tebakan), lalu
+  `paidFetch` (GET atau POST + body JSON) membelinya dengan wallet agent.
+  Loopnya ditutup dalam tes: wallet agent membeli scan SIMPANG sendiri dan
+  facilitator men-settle transfer USDC on-chain.
+- **Catatan jaringan.** Beberapa ISP Indonesia memblokir `api.cdp.coinbase.com`
+  lewat DNS (di mesin pengembang ia di-resolve ke `internetbaik.telkomsel.com`).
+  Dari server Vercel Singapura tidak diblokir; `GET /api/health` melaporkan
+  apakah katalog terjangkau dari instance yang menjawab.
+- `GET /api/health`: status nyata model, store (memory/redis), facilitator
+  (`/supported`), Bazaar, wallet agent, dan region.
+
 ## Cek
 
 Semua tes melawan model dan facilitator sungguhan (~$0.03 per run dengan
@@ -221,6 +240,30 @@ selalu terlihat di layar kecil, gerbang x402 bisa diklik. Panel *steering →
 agent* menunjukkan directive yang antre dan yang sudah diterapkan, dan di bawah
 divergensi yang resolved tampil alasan agent memilih cabang itu (dari tool
 `decide`).
+
+**Prefetch bisa diterapkan.** Cabang alternatif yang dihitung selama menunggu
+punya tombol `terapkan`: fork di working copy yang sama memakai draft itu, jadi
+"cabang yang selamat tidak mati" bukan sekadar teks. Fork juga paham tugas
+riset: deliverable ditulis ulang untuk cabang lain dengan tool data hidup.
+
+**Pohon multiplayer punya wajah.** Setiap klien membawa id acak
+(`x-simpang-client`, bukan autentikasi). Pangkasan dari `[tab]` orang lain
+tercatat sebagai `helper`, dan pemilik run melihat tanda 🤝 di pohonnya lewat
+event `actions` di batas step berikutnya, tanpa polling.
+
+**Preferensi yang dipelajari terlihat.** Panel *preferensi yang dipelajari*
+menampilkan constraint yang pernah dibunuh beserta hitungannya; `≥3×` berarti
+scan berikutnya tidak menanyakannya lagi. Tombol `lupakan` membatalkan
+(`/api/prefs`).
+
+**Koneksi putus tidak mengunci UI.** Kalau SSE terputus sebelum `done`, halaman
+mengambil state terakhir dari server (output, diff, commit) dan menandainya.
+
+**Endpoint yang membakar uang dibatasi.** `/api/run` dan `/api/fork` memakai
+`@upstash/ratelimit` (sliding window per IP + kuota harian global, bersama
+lintas instance lewat Redis; in-memory tanpa Redis). Batas dicek sebelum
+validasi body, jadi request rusak pun tidak memicu run berbayar. Pembayaran
+x402 masuk ke wallet agent (`X402_PAY_TO`), bukan alamat buangan.
 
 ## Roadmap
 

@@ -37,8 +37,11 @@ export async function POST(req: Request) {
   const status = conflicts ? 'late' : run.done ? 'finished' : 'queued'
 
   // Semua tulisan paralel: satu round-trip Redis, bukan tiga. Klaim UX-nya "efek < 1 detik".
+  // Atribusi: client id yang sama dengan pemilik run = owner; selain itu helper ([tab] orang lain).
+  const client = req.headers.get('x-simpang-client') ?? ''
+  const by = run.owner && client === run.owner ? 'owner' : 'helper'
   await Promise.all([
-    store.setAction(runId, divergenceId, { verb, branchIdx, at: Date.now() }),
+    store.setAction(runId, divergenceId, { verb, branchIdx, at: Date.now(), by }),
     verb === 'kill' ? store.bumpPrior(constraint) : null,
     status === 'queued' ? store.push(runId, constraint) : null,
   ])

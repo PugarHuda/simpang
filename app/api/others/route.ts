@@ -19,6 +19,7 @@ export async function GET(req: Request) {
     committed: run.committed,
     actions: run.actions,
     diff: byId ? run.diff : undefined,
+    output: byId ? run.output : undefined,   // pemulihan UI setelah koneksi SSE putus
     prefetch: byId ? run.prefetch : undefined,
   })
 }
