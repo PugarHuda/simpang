@@ -13,7 +13,7 @@ type Emit = (e: Record<string, unknown>) => void
 const Body = z.object({ prompt: z.string().trim().min(3).max(2000) })
 
 export async function POST(req: Request) {
-  const limited = await rateLimited(req)   // endpoint ini membakar uang model; terbuka di internet
+  const limited = await rateLimited(req)   // this endpoint burns model money and is open to the internet
   if (limited) return limited
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: 'prompt required (3-2000 chars)' }, { status: 400 })
@@ -21,44 +21,52 @@ export async function POST(req: Request) {
   const { prompt } = parsed.data
   const runId = crypto.randomUUID()
   const run = store.create(runId, prompt, req.headers.get('x-simpang-client') ?? '')
-  await store.saveBase(run)
+  // Same rule everywhere below: a store failure degrades steering, it never cancels the agent.
+  await store.saveBase(run).catch((e) => console.warn('saveBase dropped:', String(e).slice(0, 160)))
 
+  // Outside start(): cancel() has to be able to switch it off when the client hangs up.
+  let open = true
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder()
-      let open = true
       const emit: Emit = (e) => { if (open) controller.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`)) }
 
       emit({ type: 'run', runId })
 
-      // Scan dan main run START BERSAMAAN. Scan tidak pernah memblokir main run.
+      // The scan and the main run START TOGETHER. The scan never blocks the main run.
       const context = repoContext()
-      const scanning = scan(prompt, context, await store.standing()).then(async ({ divergences, etaSeconds }) => {
+      // The scan AND its store are optional: if Redis hiccups, the user still gets the agent.
+      // Without this .catch() a single store error takes the whole main run down with it.
+      const scanning = store.standing().then((standing) => scan(prompt, context, standing)).then(async ({ divergences, etaSeconds }) => {
         run.etaSeconds = etaSeconds
-        // Wait yang diperkirakan terlalu pendek: panel tidak layak muncul. Tanpa pohon = tanpa steering.
+        // Estimated wait too short: the panel is not worth showing. No tree = no steering.
         if (etaSeconds && etaSeconds < GUARDS.minEtaSeconds) {
           emit({ type: 'scan', divergences: [], locked: 0, etaSeconds, skipped: 'short-wait' })
           return
         }
         run.divergences = divergences
-        await store.saveBase(run)   // steer/unlock/others di proses lain butuh pohonnya
+        await store.saveBase(run)   // steer/unlock/others in another process need the tree
         if (divergences.length) {
           emit({ type: 'scan', divergences: store.visible(run), locked: store.locked(run), price: X402.price, etaSeconds })
-          void prefetch(run, context, emit)   // cabang alternatif dihitung SELAMA menunggu
+          void prefetch(run, context, emit)   // the alternative branch is computed WHILE you wait
         }
-      })
+      }).catch((err) => console.warn('scan path dropped:', String(err).slice(0, 200)))
 
       try {
-        await scanning // pohon harus ada sebelum user bisa memangkasnya
+        await scanning // the tree has to exist before the user can prune it
         await liveRun(run, prompt, emit)
       } catch (err) {
         emit({ type: 'error', message: String(err) })
       }
 
-      await finish(run, emit)
-      open = false
-      controller.close()
+      try { await finish(run, emit) } catch (err) { emit({ type: 'error', message: String(err) }) }
+      if (open) { open = false; controller.close() }
     },
+    // Tab closed / connection dropped. Without this the next emit throws from inside start()
+    // and becomes an unhandled rejection.
+    // ponytail: the run still finishes (its cost is capped by the rate limit).
+    // Pass req.signal into streamText if abandoned runs start showing up on the bill.
+    cancel() { open = false },
   })
 
   return new Response(stream, {
@@ -72,7 +80,7 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
   const ws = workspace(run.id)
   const divergences = run.divergences
 
-  // Main run diberi kosakata pohon: id, sumbu, dua label persis. Commit = tool call `decide`.
+  // The main run is handed the tree's vocabulary: id, axis, the two exact labels. Committing = the `decide` tool call.
   const vocabulary = divergences.length
     ? '\n\nDecision points already identified for this task. BEFORE writing any file, call the `decide` tool ' +
       'once per decision point you have resolved. This is MANDATORY before the first writeFile:\n' +
@@ -80,20 +88,20 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
     : ' State each decision on its own line as: "Decision - <axis>: going with <choice>."'
   const ids = divergences.map((d) => d.id)
 
-  // Tugas kode: repo tools. Tugas riset/analisa: tool data hidup. Jawaban akhir = deliverable.
+  // Code task: repo tools. Research/analysis task: live-data tools. The final answer is the deliverable.
   const system = 'You are a capable agent. Decide from the request what kind of task it is.\n' +
     '- Code task: read the repo with readFile before writing; write complete files with writeFile ' +
     '(the user sees a real diff); finish with a short summary.\n' +
     '- Research/analysis task (prices, news, comparisons, reports): fetch live data with marketData / webSearch / ' +
     'paidFetch, then write the full deliverable as your final answer in markdown with concrete numbers, dates and sources. ' +
     'Never say you lack data access: you have these tools. Answer in the language of the request.' + vocabulary
-  const steering: string[] = []   // semua directive yang sudah masuk; berlaku sampai run selesai
+  const steering: string[] = []   // every directive that has landed; they hold until the run ends
 
   const result = streamText({
     model: MODELS.main,
-    stopWhen: stepCountIs(30),   // model satu-tool-per-step (qwen) butuh lebih dari 16
+    stopWhen: stepCountIs(30),   // one-tool-per-step models (qwen) need more than 16
     maxOutputTokens: GUARDS.maxOutputTokens,
-    // Tanpa ini, error provider menutup stream dalam diam dan user cuma lihat layar kosong.
+    // Without this a provider error closes the stream silently and the user just sees a blank screen.
     onError: ({ error }) => emit({ type: 'error', message: String(error) }),
     system,
     prompt: `${prompt}\n\nFiles in the repo (only relevant for code tasks): ${listFiles().join(', ')}`,
@@ -116,10 +124,10 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
           return `wrote ${path} (${content.split('\n').length} lines)`
         },
       }),
-      // Commit = tool call, bukan pola teks. Model jauh lebih patuh pada schema
-      // daripada pada format kalimat, dan hasilnya langsung terstruktur.
-      // branch menerima 0/1 sebagai angka ATAU string: qwen mengirim "0" dan schema
-      // yang ketat membuatnya gagal berkali-kali tanpa pernah mencatat commit.
+      // Committing is a tool call, not a text pattern. Models obey a schema far more
+      // reliably than a sentence format, and the result is structured for free.
+      // branch takes 0/1 as a number OR a string: qwen sends "0", and a strict schema
+      // made it fail over and over without ever recording a commit.
       decide: tool({
         description: 'Record which branch you are taking for an identified decision point.',
         inputSchema: z.object({
@@ -140,12 +148,17 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
       }),
     },
 
-    // === TITIK INJEKSI. Setiap batas tool call, antrian steering di-drain. ===
-    // SDK 7 melarang pesan system di tengah messages; yang benar: timpa `instructions` per step.
+    // === THE INJECTION POINT. At every tool-call boundary the steering queue is drained. ===
+    // SDK 7 forbids a system message in the middle of `messages`; the way in is to override
+    // `instructions` per step.
     prepareStep: async ({ stepNumber }) => {
       emit({ type: 'step', n: stepNumber })
       const [pending, fresh] = await Promise.all([store.drain(run.id), store.get(run.id)])
-      // Pemilik melihat aksi yang datang dari orang lain (pohon multiplayer) tanpa polling.
+        .catch((e): [string[], undefined] => {
+          console.warn('steer drain dropped:', String(e).slice(0, 160))
+          return [[], undefined]
+        })
+      // The owner sees actions arriving from other people (the multiplayer tree) without polling.
       if (fresh && Object.keys(fresh.actions).length) emit({ type: 'actions', actions: fresh.actions })
       if (pending.length) {
         steering.push(...pending)
@@ -165,20 +178,22 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
   for await (const delta of result.textStream) {
     run.output += delta
     emit({ type: 'text', delta })
-    await detectCommits(run, emit)
+    // The pattern is newline-terminated; without this guard the whole output is re-scanned per token (O(n^2)).
+    if (delta.includes('\n')) await detectCommits(run, emit)
   }
   run.diff = ws.diff()
-  await store.saveFiles(run.id, ws.changed())   // fork di instance lain bisa melanjutkan working copy ini
-  await store.saveBase(run)
+  // a fork on another instance can continue this working copy
+  await Promise.all([store.saveFiles(run.id, ws.changed()), store.saveBase(run)])
+    .catch((e) => console.warn('persist dropped:', String(e).slice(0, 160)))
   emit({ type: 'patch', diff: run.diff, finishReason: await result.finishReason })
 }
 
 /* ------------------------------------------------------------ prefetch ---- */
 
-/** Cabang yang kemungkinan TIDAK diambil main run (confidence lebih rendah) dihitung
- *  sungguhan selama menunggu: rencana konkret + potongan kode, siap saat jawaban mendarat.
- *  Kalau user membunuh cabang itu, hitungannya dibuang; kalau main run justru memilihnya,
- *  hasilnya disembunyikan. */
+/** The branch the main run probably will NOT take (the lower-confidence one) is really
+ *  computed while you wait: a concrete plan plus code, ready the moment the answer lands.
+ *  If you kill that branch the work is dropped; if the main run picks it after all,
+ *  the result is hidden. */
 async function prefetch(run: Run, context: string, emit: Emit) {
   const targets = run.divergences
     .slice(0, GUARDS.prefetchCap)
@@ -211,8 +226,9 @@ async function prefetch(run: Run, context: string, emit: Emit) {
 
 /* ------------------------------------------------------- commit + score ---- */
 
-/** Cadangan kalau model menulis "Decision - <axis>: going with <label>." alih-alih memanggil
- *  tool decide. Cocokkan sumbu lalu label persis; irisan kata hanya kalau diparafrase. */
+/** Fallback for a model that writes "Decision - <axis>: going with <label>." instead of
+ *  calling the decide tool. Match the axis, then the exact label; fall back to word overlap
+ *  only when it paraphrased. */
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 const words = (s: string) => new Set(norm(s).split(' ').filter((w) => w.length >= 3))
 async function detectCommits(run: Run, emit: Emit) {
@@ -233,15 +249,15 @@ async function detectCommits(run: Run, emit: Emit) {
   }
 }
 
-/** Model yang mengabaikan tool `decide` tetap diberi commit: diff dan log-nya
- *  diklasifikasikan model scan (murah, terstruktur). Ini classifier post-hoc sungguhan,
- *  bukan tebakan kata kunci. */
+/** A model that ignores the `decide` tool still gets its commits: the scan model classifies
+ *  the diff and the log (cheap, structured output). A real post-hoc classifier, not keyword
+ *  guessing. */
 async function classifyCommits(run: Run, emit: Emit) {
   const open = run.divergences.filter((d) => !(d.id in run.committed))
   if (!open.length || (!run.diff && !run.output)) return
   try {
     const { object } = await generateObject({
-      model: MODELS.prefetch,   // non-reasoning: 400 token output harus jadi JSON, bukan pikiran
+      model: MODELS.prefetch,   // non-reasoning: 400 output tokens must become JSON, not thoughts
       maxOutputTokens: 400,
       abortSignal: AbortSignal.timeout(12000),
       schema: z.object({ decisions: z.array(z.object({ id: z.string(), branch: z.number(), confident: z.boolean() })) }),
@@ -265,7 +281,7 @@ async function classifyCommits(run: Run, emit: Emit) {
 async function finish(run: Run, emit: Emit) {
   await classifyCommits(run, emit)
 
-  // Aksi user datang dari proses mana pun: baca state bersama, bukan salinan lokal.
+  // User actions arrive from any process: read the shared state, not the local copy.
   const shared = (await store.get(run.id)) ?? run
   const acted = Object.entries(run.committed).filter(([id]) => shared.actions[id])
   const hits = acted.filter(([id, idx]) => {
@@ -274,12 +290,12 @@ async function finish(run: Run, emit: Emit) {
   })
   const calibration = acted.length ? hits.length / acted.length : null
 
-  // Prefetch yang masih jalan diberi kesempatan singkat; sisanya dilaporkan apa adanya.
+  // Prefetches still in flight get a short grace period; the rest is reported as it stands.
   const deadline = Date.now() + 8000
   while (run.prefetch.some((p) => p.status === 'running') && Date.now() < deadline)
     await new Promise((r) => setTimeout(r, 250))
 
-  // Hanya cabang yang tidak dibunuh user dan tidak diambil main run: follow-up yang sudah jadi.
+  // Only branches the user did not kill and the main run did not take: finished follow-ups.
   const ready = run.prefetch.filter((p) =>
     p.status === 'done' &&
     !(shared.actions[p.divergenceId]?.verb === 'kill' && shared.actions[p.divergenceId].branchIdx === p.branchIdx) &&

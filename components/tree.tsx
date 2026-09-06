@@ -3,7 +3,7 @@ import type { Divergence } from '@/lib/divergence'
 
 export type Act = { verb: 'kill' | 'pin'; branchIdx: number; by?: 'owner' | 'helper' }
 
-/** Label tombol per cabang, urut baris angka fisik: 12 tombol = 6 divergensi x 2 cabang. */
+/** One key label per branch, in physical number-row order: 12 keys = 6 divergences x 2 branches. */
 export const KEY_LABELS = '1234567890-='.split('')
 
 export function Tree({
@@ -12,7 +12,7 @@ export function Tree({
   divergences: Divergence[]
   actions: Record<string, Act>
   committed: Record<string, number>
-  notes?: Record<string, string>          // divergenceId -> alasan agent saat commit
+  notes?: Record<string, string>          // divergenceId -> the agent's reason when it committed
   locked: { count: number; price: string }
   ask: string | null
   onAsk: (id: string, branchIdx: number) => void
@@ -62,7 +62,7 @@ export function Tree({
                     data-testid={`branch-${d.id}-${bi}`}
                     data-state={state}
                     title={b.sketch}
-                    // Klik = kill, shift+klik = pin: HP dan trackpad tidak punya baris angka.
+                    // Click = kill, shift+click = pin: phones and trackpads have no number row.
                     onClick={(e) => { if (state === 'open' || state === 'killed' || state === 'pinned') onSteer(d.id, bi, e.shiftKey ? 'pin' : 'kill') }}
                     className={[
                       'group pl-4 pr-1 flex items-baseline gap-3 transition-all duration-500 rounded cursor-pointer hover:bg-neutral-900/60',
@@ -75,7 +75,7 @@ export function Tree({
                     <span className="w-44 md:w-52 truncate text-neutral-200">
                       {b.label}
                       {(killed || pinned) && act?.by === 'helper' && (
-                        <span className="ml-1 text-sky-400" title="dipangkas orang lain lewat [tab]" data-testid={`helped-${d.id}-${bi}`}>🤝</span>
+                        <span className="ml-1 text-sky-400" title="pruned by someone else via [tab]" data-testid={`helped-${d.id}-${bi}`}>🤝</span>
                       )}
                     </span>
                     <span className="hidden sm:inline w-20 tabular-nums text-neutral-600">{b.filesTouched > 0 ? `~${b.filesTouched} files` : ''}</span>
@@ -115,10 +115,10 @@ export function Tree({
           data-testid="paywall"
           className="w-full text-left px-3 py-2 border-t border-neutral-900 text-[12px] text-neutral-500 hover:bg-neutral-900/60"
         >
-          {locked.count} futures lagi · {locked.price} USDC per cabang ·{' '}
-          <span className="text-neutral-300">[enter] bayar via x402</span>
-          {wallet === false && <span className="text-amber-400"> · butuh wallet EVM di browser</span>}
-          <span className="text-neutral-700"> · [esc] lanjut dengan {divergences.length}</span>
+          {locked.count} more futures · {locked.price} USDC per branch ·{' '}
+          <span className="text-neutral-300">[enter] pay via x402</span>
+          {wallet === false && <span className="text-amber-400"> · needs an EVM wallet in this browser</span>}
+          <span className="text-neutral-700"> · [esc] continue with {divergences.length}</span>
         </button>
       )}
     </div>

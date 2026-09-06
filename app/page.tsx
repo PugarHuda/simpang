@@ -6,13 +6,13 @@ import { Tree, KEY_LABELS, type Act } from '@/components/tree'
 import type { Divergence } from '@/lib/divergence'
 import { hasWallet, paidFetch } from '@/lib/x402-client'
 
-// Baris angka fisik: 12 tombol = 6 divergensi x 2 cabang.
+// The physical number row: 12 keys = 6 divergences x 2 branches.
 const KEY_ROW = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6',
   'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal']
 
 const EXAMPLES = [
   'refactor the auth system to use sessions',
-  'analisa koin bitcoin seminggu terakhir',
+  'analyse bitcoin over the last week',
   'add rate limiting to the login endpoint',
 ]
 
@@ -25,7 +25,7 @@ type Result = { calibration: number | null; prefetch: Ready[]; elapsedMs: number
 type Directive = { text: string; at: number; applied: boolean }
 type Pref = { constraint: string; count: number; standing: boolean }
 
-// Identitas klien untuk atribusi (pemilik run vs helper lewat [tab]). Bukan autentikasi.
+// Client identity for attribution (run owner vs helper via [tab]). Not authentication.
 const clientId = () => {
   try {
     const k = 'simpang.client'
@@ -65,7 +65,7 @@ export default function Page() {
   const [openReady, setOpenReady] = useState<number | null>(null)
   const [wallet, setWallet] = useState<boolean | undefined>(undefined)
   const [t, setT] = useState(0)
-  // Pohon orang lain yang sedang kamu bantu pangkas ([tab]).
+  // Someone else's tree that you are helping to prune ([tab]).
   const [other, setOther] = useState<Other | null>(null)
   const otherRef = useRef<Other | null>(null)
   const startRef = useRef(0)
@@ -91,25 +91,32 @@ export default function Page() {
   const note = useCallback((line: string) => setLog((l) => [...l.slice(-3), line]), [])
 
   const steer = useCallback(async (divergenceId: string, branchIdx: number, verb: 'kill' | 'pin') => {
-    // Saat membantu orang lain, pangkasan masuk ke run MEREKA. API-nya sama.
+    // While helping someone else, the prune goes into THEIR run. Same API.
     const helping = otherRef.current
     if (helping) setOther((o) => o && { ...o, actions: { ...o.actions, [divergenceId]: { verb, branchIdx } } })
     else setActions((a) => ({ ...a, [divergenceId]: { verb, branchIdx } }))
+    // If the server rejects it, the optimistic paint has to come back off: a tree that
+    // says "killed" for a prune that never landed is a lie.
+    const revert = () => {
+      const drop = (m: Record<string, Act>) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== divergenceId))
+      if (helping) setOther((o) => o && { ...o, actions: drop(o.actions) })
+      else setActions(drop)
+    }
     const r = await fetch('/api/steer', {
       method: 'POST', headers: hdr(),
       body: JSON.stringify({ runId: helping?.runId ?? runIdRef.current, divergenceId, branchIdx, verb }),
-    }).then((x) => x.json())
-    if (r.error && r.status !== 'late') return flash(`✗ ${r.error}`)
-    // Pangkasan terlambat: main run sudah commit ke cabang lawan. Simpan target
-    // koreksinya (cabang yang seharusnya) supaya [f] bisa fork tanpa mengulang.
+    }).then((x) => x.json()).catch(() => ({ error: 'network dropped' }))
+    if (r.error && r.status !== 'late') { revert(); return flash(`✗ ${r.error}`) }
+    // Late prune: the main run already committed to the other branch. Remember the
+    // correction target (the branch it should have been) so [f] can fork without redoing it.
     if (r.status === 'late' && !helping) setLate({ divergenceId, branchIdx: verb === 'pin' ? branchIdx : 1 - branchIdx })
     if (r.status === 'queued' && !helping) setDirectives((d) => [...d, { text: r.injected, at: Date.now(), applied: false }])
-    flash(r.status === 'late' ? `⚠ late · [f] fork koreksi`
-      : r.status === 'finished' ? `run sudah selesai dan sejalan · dicatat sebagai preferensi`
+    flash(r.status === 'late' ? `⚠ late · [f] fork the fix`
+      : r.status === 'finished' ? `run already finished and agrees · recorded as a preference`
       : `${verb === 'kill' ? 'killed' : 'pinned'} · injected: "${r.injected}"`)
   }, [flash])
 
-  // Fork: koreksi pangkasan terlambat ([f]) ATAU "terapkan" cabang prefetch yang sudah dihitung.
+  // Fork: correct a late prune ([f]) OR "apply" a prefetched branch that was computed while waiting.
   const fork = useCallback(async (explicit?: { divergenceId: string; branchIdx: number }) => {
     const target = explicit ?? late
     if (!target) return
@@ -131,23 +138,23 @@ export default function Page() {
     setCommitted((c) => ({ ...c, [target.divergenceId]: target.branchIdx }))
     const state = await fetch(`/api/others?runId=${runIdRef.current}`).then((x) => x.json())
     if (state.diff) setDiff(state.diff)
-    flash('forked · diff diperbarui')
+    flash('forked · diff updated')
   }, [late, flash])
 
-  // x402 lewat SDK resmi: [enter] saat ada cabang terkunci. Wallet browser menandatangani,
-  // @x402/fetch mengulang request dengan PAYMENT-SIGNATURE, facilitator men-settle USDC.
+  // x402 through the official SDK: [enter] while a branch is locked. The browser wallet signs,
+  // @x402/fetch retries the request with PAYMENT-SIGNATURE, the facilitator settles the USDC.
   const unlock = useCallback(async () => {
-    if (!hasWallet()) return flash('butuh wallet EVM (MetaMask/Rabby) di browser untuk bayar via x402', 4000)
+    if (!hasWallet()) return flash('needs an EVM wallet (MetaMask/Rabby) in this browser to pay via x402', 4000)
     try {
-      flash('x402 · minta tanda tangan wallet…', 60000)
+      flash('x402 · asking the wallet to sign…', 60000)
       const { fetch: pay, settleOf } = await paidFetch()
       const res = await pay(`/api/unlock?runId=${runIdRef.current}`, { method: 'POST' })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) {
-        // Alasan penolakan facilitator ada di header PAYMENT-REQUIRED (field error), bukan body.
+        // The facilitator's reason lives in the PAYMENT-REQUIRED header (field `error`), not the body.
         let reason = j.error ?? `HTTP ${res.status}`
         try { reason = JSON.parse(atob(res.headers.get('PAYMENT-REQUIRED') ?? '')).error ?? reason } catch {}
-        if (/insufficient_balance/.test(reason)) reason = 'saldo USDC Base Sepolia tidak cukup di wallet ini (insufficient_balance)'
+        if (/insufficient_balance/.test(reason)) reason = 'not enough Base Sepolia USDC in this wallet (insufficient_balance)'
         return flash(`✗ ${reason}`, 6000)
       }
       const tx = settleOf(res)?.transaction ?? ''
@@ -159,29 +166,29 @@ export default function Page() {
     }
   }, [flash])
 
-  // [tab]: ambil run orang lain yang sedang berjalan. Waktu tunggumu memperbaiki hasil mereka.
+  // [tab]: pick up someone else's running tree. Your wait time improves their result.
   const helpOther = useCallback(async () => {
     if (otherRef.current) return setOther(null)
     const r = await fetch(`/api/others?exclude=${runIdRef.current}`)
-    if (!r.ok) return flash('tidak ada run lain yang sedang berjalan', 2500)
+    if (!r.ok) return flash('no other run in flight', 2500)
     setOther(await r.json())
   }, [flash])
 
-  // ponytail: poll 2 detik selama panel terbuka. SSE per pohon kalau ini jadi fitur utama.
+  // ponytail: 2s poll while the panel is open. SSE per tree if this ever becomes a main feature.
   const otherId = other?.runId
   useEffect(() => {
     if (!otherId) return
     const i = setInterval(async () => {
       const r = await fetch(`/api/others?runId=${otherId}`)
       const j = r.ok ? await r.json() : null
-      if (!j || j.done) { setOther(null); flash('run mereka selesai', 2500); return }
+      if (!j || j.done) { setOther(null); flash('their run finished', 2500); return }
       setOther(j)
     }, 2000)
     return () => clearInterval(i)
   }, [otherId, flash])
 
-  // Hotkey: baris angka kill · shift+angka pin · space ask · y/n jawab · esc collapse
-  //         f fork · enter bayar · tab bantu orang lain · d diff
+  // Hotkeys: number row kill · shift+number pin · space ask · y/n answer · esc collapse
+  //          f fork · enter pay · tab help someone else · d diff
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
@@ -193,14 +200,16 @@ export default function Page() {
       if (e.key === 'Enter') return locked.count > 0 ? unlock() : undefined
       if (e.key === ' ') {
         e.preventDefault()
-        const next = divsRef.current.find((d) => d.id !== askRef.current)
-        return setAsk((a) => (a ? null : next?.id ?? null))
+        // Walk the tree: null -> d0 -> d1 -> ... -> null. It used to stop at d0 forever,
+        // so the second divergence onward could never be asked about.
+        const list = divsRef.current
+        return setAsk(list[list.findIndex((d) => d.id === askRef.current) + 1]?.id ?? null)
       }
       if ((e.key === 'y' || e.key === 'n') && askRef.current) {
         steer(askRef.current, e.key === 'y' ? 0 : 1, 'pin')
         return setAsk(null)
       }
-      // e.code, bukan e.key: shift+1 menghasilkan '!' di e.key.
+      // e.code, not e.key: shift+1 gives '!' in e.key.
       const n = KEY_ROW.indexOf(e.code)
       if (n < 0) return
       const d = (otherRef.current?.divergences ?? divsRef.current)[Math.floor(n / 2)]
@@ -218,8 +227,8 @@ export default function Page() {
     setErrors([]); setDiff(''); setShowDiff(false); setPrefetched([]); setLog([]); setEta(0); setScanNote('')
     setOpenReady(null)
     startRef.current = Date.now()
-    ;(document.activeElement as HTMLElement | null)?.blur()   // supaya hotkey tidak mengetik ke input
-    void fetch('/api/steer').catch(() => {})   // panaskan route steer: tombol pertama harus < 1 detik
+    ;(document.activeElement as HTMLElement | null)?.blur()   // so hotkeys don't type into the input
+    void fetch('/api/steer').catch(() => {})   // warm the steer route: the first key must land in < 1s
 
     const res = await fetch('/api/run', { method: 'POST', headers: hdr(), body: JSON.stringify({ prompt }) })
     if (!res.ok) {
@@ -242,8 +251,8 @@ export default function Page() {
         if (e.type === 'run') runIdRef.current = e.runId
         if (e.type === 'scan') {
           setDivs(e.divergences); setLocked({ count: e.locked, price: e.price ?? '$0.01' }); setEta(e.etaSeconds ?? 0)
-          if (e.skipped) setScanNote(`wait diperkirakan ${e.etaSeconds}s · terlalu pendek untuk panel`)
-          else if (!e.divergences.length) setScanNote('tidak ada keputusan nyata di prompt ini · panel diam')
+          if (e.skipped) setScanNote(`estimated wait ${e.etaSeconds}s · too short for the panel`)
+          else if (!e.divergences.length) setScanNote('no real decisions in this prompt · the panel stays quiet')
         }
         if (e.type === 'text') setOut((o) => o + e.delta)
         if (e.type === 'tool') note(
@@ -266,14 +275,14 @@ export default function Page() {
         }
         if (e.type === 'prefetch' && e.status === 'done') setPrefetched((p) => [...p, e.label])
         if (e.type === 'actions') {
-          // Aksi dari helper ([tab] orang lain) muncul di pohon pemilik dengan tanda 🤝.
+          // Actions from a helper ([tab] on your tree) show up on the owner's tree with a 🤝.
           const incoming = e.actions as Record<string, Act>
           setActions((a) => {
             const next = { ...a }
             for (const [id, act] of Object.entries(incoming)) if (act.by === 'helper' || !next[id]) next[id] = act
             return next
           })
-          if (Object.values(incoming).some((a) => a.by === 'helper')) flash('🤝 seseorang ikut memangkas pohonmu')
+          if (Object.values(incoming).some((a) => a.by === 'helper')) flash('🤝 someone is pruning your tree')
         }
         if (e.type === 'error') setErrors((x) => [...x, e.message])
         if (e.type === 'patch') { setDiff(e.diff ?? ''); if (e.diff) note('diff ready · [d] show') }
@@ -281,14 +290,15 @@ export default function Page() {
       }
     }
     if (!finished) {
-      // Koneksi SSE putus (jaringan, timeout function): ambil state terakhir dari server, jangan biarkan "running" selamanya.
+      // The SSE connection broke (network, function timeout): pull the last state from the
+      // server instead of leaving the page stuck on "running" forever.
       const state = await fetch(`/api/others?runId=${runIdRef.current}`).then((x) => (x.ok ? x.json() : null)).catch(() => null)
       if (state) {
         if (state.output) setOut(state.output)
         if (state.diff) setDiff(state.diff)
         setCommitted(state.committed ?? {})
-        setErrors((x) => [...x, state.done ? 'koneksi terputus, hasil dipulihkan dari server' : 'koneksi terputus sebelum agent selesai'])
-      } else setErrors((x) => [...x, 'koneksi terputus'])
+        setErrors((x) => [...x, state.done ? 'connection dropped, result recovered from the server' : 'connection dropped before the agent finished'])
+      } else setErrors((x) => [...x, 'connection dropped'])
       setStatus('done')
     }
     void loadPrefs()
@@ -315,7 +325,7 @@ export default function Page() {
       <div className="mx-auto max-w-4xl space-y-4">
         <header className="flex items-baseline gap-3 text-[13px]">
           <a href="https://github.com/PugarHuda/simpang" className="text-neutral-100 tracking-widest hover:underline">SIMPANG</a>
-          <span className="text-neutral-600 hidden sm:inline">kamu yang memilih arah di tiap simpang</span>
+          <span className="text-neutral-600 hidden sm:inline">you pick the direction at every fork</span>
           <span className="ml-auto tabular-nums text-neutral-500" data-testid="clock">
             {status === 'idle' ? '--:--' : `${secs}s`}
             {eta > 0 && status === 'running' && <span className="text-neutral-700"> / ~{eta}s est</span>}
@@ -332,7 +342,7 @@ export default function Page() {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && go()}
-            placeholder="tugas untuk agent…"
+            placeholder="task for the agent…"
             aria-label="prompt"
             data-testid="prompt"
             className="flex-1 min-w-0 bg-neutral-900 border border-neutral-800 rounded px-3 py-2 text-[13px] outline-none focus:border-neutral-600"
@@ -350,9 +360,9 @@ export default function Page() {
         {status === 'idle' && (
           <div className="text-[12px] text-neutral-500 space-y-2" data-testid="intro">
             <p>
-              Ketik tugas, tekan Enter. Selagi agent bekerja, titik-titik keputusannya muncul sebagai pohon.
-              Bunuh cabang yang salah sebelum agent memakan satu turn penuh; cabang yang selamat dihitung
-              lebih dulu selama kamu menunggu.
+              Type a task, press Enter. While the agent works, its decision points appear as a tree.
+              Kill the wrong branch before the agent spends a whole turn on it; the branches that
+              survive are computed ahead of time while you wait.
             </p>
             <div className="flex flex-wrap gap-2">
               {EXAMPLES.map((ex) => (
@@ -395,9 +405,9 @@ export default function Page() {
             />
             <div className="text-[11px] text-neutral-600" data-testid="legend">
               {ask
-                ? '[y] pilih kiri · [n] pilih kanan · [space] tutup'
-                : `[1-${lastKey}] kill · [⇧1-${lastKey}] pin · klik baris = kill · [space] ask · [esc] ignore · [tab] help someone`}
-              {late && <span className="text-amber-300"> · [f] fork koreksi</span>}
+                ? '[y] take left · [n] take right · [space] next'
+                : `[1-${lastKey}] kill · [⇧1-${lastKey}] pin · click a row = kill · [space] ask · [esc] ignore · [tab] help someone`}
+              {late && <span className="text-amber-300"> · [f] fork the fix</span>}
               {diff && <span> · [d] diff</span>}
             </div>
           </>
@@ -426,7 +436,7 @@ export default function Page() {
                 {i === log.length - 1 ? <span className="animate-pulse">●</span> : '○'} {l}
               </div>
             ))}
-            {prefetched.length > 0 && <div className="text-emerald-700">✓ {prefetched.length} follow-up siap</div>}
+            {prefetched.length > 0 && <div className="text-emerald-700">✓ {prefetched.length} follow-ups ready</div>}
           </div>
         )}
 
@@ -461,7 +471,7 @@ export default function Page() {
         {result && (
           <div className="border border-emerald-900/60 rounded p-3 text-[13px] space-y-1" data-testid="result">
             <div className="text-emerald-400">
-              {result.prefetch.length ? 'prefetched · siap sekarang' : 'selesai'}
+              {result.prefetch.length ? 'prefetched · ready now' : 'done'}
             </div>
             {result.prefetch.map((p, i) => (
               <div key={i}>
@@ -472,8 +482,8 @@ export default function Page() {
                   onClick={() => fork({ divergenceId: p.divergenceId, branchIdx: p.branchIdx })}
                   data-testid={`apply-${p.divergenceId}-${p.branchIdx}`}
                   className="ml-2 px-1.5 text-[11px] border border-emerald-900 rounded text-emerald-400 hover:bg-emerald-900/30"
-                  title="jadikan cabang ini jawaban utama (fork di working copy yang sama)"
-                >terapkan</button>
+                  title="make this branch the main answer (forks in the same working copy)"
+                >apply</button>
                 {openReady === i && (
                   <div className="text-[12px] text-neutral-500 border border-neutral-900 rounded p-2 mt-1"><Md>{p.text}</Md></div>
                 )}
@@ -490,14 +500,14 @@ export default function Page() {
       {status !== 'running' && prefs.length > 0 && (
         <div className="mx-auto max-w-4xl mt-6 border border-neutral-900 rounded px-3 py-2 text-[12px] space-y-1" data-testid="prefs">
           <div className="text-neutral-500">
-            preferensi yang dipelajari · ≥3× kill = tidak ditanya lagi di scan berikutnya
+            learned preferences · killed ≥3× = never offered as a decision again
           </div>
           {prefs.slice(0, 8).map((p) => (
             <div key={p.constraint} className="flex items-baseline gap-2">
               <span className={p.standing ? 'text-emerald-400' : 'text-neutral-600'}>{p.count}×</span>
               <span className={p.standing ? 'text-neutral-200' : 'text-neutral-400'}>{p.constraint}</span>
               <button onClick={() => forget(p.constraint)} data-testid="forget"
-                className="ml-auto text-neutral-600 hover:text-red-300">lupakan</button>
+                className="ml-auto text-neutral-600 hover:text-red-300">forget</button>
             </div>
           ))}
         </div>

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "SIMPANG",
-  description: "Kamu yang memilih arah di tiap simpang.",
+  description: "You pick the direction at every fork.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

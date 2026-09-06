@@ -1,8 +1,8 @@
 import { defineConfig } from '@playwright/test'
 
-// E2E jalan melawan model SUNGGUHAN (tanpa mock): scan gpt-56-luna, main run qwen3-coder
-// (agent murah yang patuh tool call, ~$0.03 per run). Butuh VENICE_API_KEY di .env.local.
-// SIMPANG_FREE_BRANCHES=2 supaya divergensi ke-3 terkunci dan gerbang x402 ikut teruji.
+// E2E runs against REAL models (no mocks): scan on gpt-56-luna, main run on qwen3-coder
+// (a cheap agent that obeys tool calls, ~$0.03 per run). Needs VENICE_API_KEY in .env.local.
+// SIMPANG_FREE_BRANCHES=2 so the 3rd divergence is locked and the x402 gate is exercised too.
 const PORT = 3101
 
 export default defineConfig({
@@ -23,7 +23,7 @@ export default defineConfig({
       ...process.env,
       SIMPANG_MAIN_MODEL: process.env.SIMPANG_TEST_MAIN_MODEL ?? 'qwen3-coder-480b-a35b-instruct-turbo',
       SIMPANG_FREE_BRANCHES: '2',
-      SIMPANG_RUN_LIMIT: '60',   // suite ini menjalankan ~7 run dari satu IP dalam satu jam
+      SIMPANG_RUN_LIMIT: '60',   // this suite fires ~7 runs from one IP within an hour
     },
   },
 })

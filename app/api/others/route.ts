@@ -1,9 +1,9 @@
 import { store } from '@/lib/store'
 
-/** State sebuah run (dipoll UI) dan pohon multiplayer.
- *  ?runId=<id>      -> state terkini run itu (pohon, commit, aksi, diff, prefetch)
- *  ?exclude=<id-mu> -> run lain yang sedang berjalan, untuk kamu bantu pangkas.
- *  Pangkasannya lewat /api/steer biasa dengan runId mereka. */
+/** The state of one run (polled by the UI) and the multiplayer tree.
+ *  ?runId=<id>       -> the current state of that run (tree, commits, actions, diff, prefetch)
+ *  ?exclude=<your-id> -> another run in flight, for you to help prune.
+ *  Pruning it goes through the ordinary /api/steer with their runId. */
 export async function GET(req: Request) {
   const u = new URL(req.url)
   const byId = u.searchParams.get('runId')
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     committed: run.committed,
     actions: run.actions,
     diff: byId ? run.diff : undefined,
-    output: byId ? run.output : undefined,   // pemulihan UI setelah koneksi SSE putus
+    output: byId ? run.output : undefined,   // lets the UI recover after the SSE connection drops
     prefetch: byId ? run.prefetch : undefined,
   })
 }

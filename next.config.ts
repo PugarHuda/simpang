@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Repo contoh dibaca lewat fs saat runtime; tanpa ini bundel serverless Vercel tidak membawanya.
+  // The example repo is read from the filesystem at runtime; without this the Vercel serverless bundle leaves it out.
   outputFileTracingIncludes: { "/api/**": ["./examples/**/*"] },
 };
 

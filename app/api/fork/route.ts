@@ -10,11 +10,11 @@ export const maxDuration = 300
 
 const Body = z.object({ runId: z.string().uuid(), divergenceId: z.string().min(1), branchIdx: z.union([z.literal(0), z.literal(1)]) })
 
-/** Fork koreksi: TIDAK mengulang dari nol. Agent bekerja di working copy yang sama
- *  (dihidupkan lagi dari store kalau instance-nya beda), merevisi hanya yang bergantung
- *  pada keputusan itu, dan diff-nya diperbarui. Untuk tugas riset: deliverable ditulis
- *  ulang untuk cabang alternatif, dengan tool data hidup. Juga dipakai tombol "terapkan"
- *  pada prefetch: cabang yang sudah dihitung selama menunggu jadi jawaban utama. */
+/** A correcting fork: it does NOT start over. The agent works in the same working copy
+ *  (rehydrated from the store if this is a different instance), revises only what depends on
+ *  that decision, and the diff is updated. For a research task the deliverable is rewritten
+ *  for the alternative branch using the live-data tools. This is also what the prefetch
+ *  "apply" button calls: the branch computed while you waited becomes the main answer. */
 export async function POST(req: Request) {
   const limited = await rateLimited(req)
   if (limited) return limited
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   if (!run || !d) return Response.json({ error: 'not found' }, { status: 404 })
   const b = d.branches[branchIdx]
   const ws = workspace(runId, await store.loadFiles(runId))
-  run.committed[divergenceId] = branchIdx   // fork = koreksi keputusan yang sudah lewat
+  run.committed[divergenceId] = branchIdx   // a fork corrects a decision that already happened
   await store.setCommit(runId, divergenceId, branchIdx)
   const isCode = run.diff.length > 0
   const ready = run.prefetch.find((p) => p.divergenceId === divergenceId && p.branchIdx === branchIdx && p.status === 'done')

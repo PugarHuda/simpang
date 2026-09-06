@@ -8,18 +8,18 @@ import { ExactEvmScheme } from '@x402/evm/exact/client'
 import { wrapFetchWithPayment, x402HTTPClient } from '@x402/fetch'
 import { findPaidResources } from './bazaar'
 
-/** Tool data hidup untuk agent. Tanpa ini agent hanya bisa mengerjakan repo dan
- *  menjawab "saya tidak punya akses data" untuk prompt seperti analisa harga.
- *  - webSearch: Venice web search (kunci yang sama dengan model), jawaban + sitasi
- *  - marketData: harga harian kripto dari CoinGecko (publik, tanpa kunci)
- *  - paidFetch: endpoint berbayar x402, dibayar otomatis dari wallet agent
- *    (X402_BUYER_PRIVATE_KEY, USDC Base Sepolia) — sisi PEMBELI x402 */
+/** Live-data tools for the agent. Without them the agent can only work the repo and answers
+ *  "I have no data access" to a prompt like a price analysis.
+ *  - webSearch: Venice web search (same key as the model), an answer plus citations
+ *  - marketData: daily crypto prices from CoinGecko (public, no key)
+ *  - paidFetch: x402-gated endpoints, paid automatically from the agent's wallet
+ *    (X402_BUYER_PRIVATE_KEY, USDC on Base Sepolia) — the BUYER side of x402 */
 
 type Emit = (e: Record<string, unknown>) => void
 
-/** URL dari model = input tidak tepercaya. Hanya https ke host publik: loopback, jaringan
- *  privat, link-local (metadata cloud 169.254.x), dan nama internal ditolak SETELAH resolusi
- *  DNS, supaya "evil.example -> 127.0.0.1" juga tertangkap. */
+/** A URL from the model is untrusted input. https to public hosts only: loopback, private
+ *  networks, link-local (cloud metadata at 169.254.x) and internal names are rejected AFTER DNS
+ *  resolution, so "evil.example -> 127.0.0.1" is caught too. */
 async function assertPublicUrl(raw: string) {
   let u: URL
   try { u = new URL(raw) } catch { throw new Error('invalid url') }
@@ -95,7 +95,7 @@ export function researchTools(emit: Emit) {
     },
   })
 
-  // Katalog x402 Bazaar: temukan endpoint data/AI berbayar, lalu beli dengan paidFetch.
+  // The x402 Bazaar catalog: find paid data/AI endpoints, then buy them with paidFetch.
   tools.findPaidData = tool({
     description: 'Search the x402 Bazaar catalog of paid data and AI endpoints (price in USDC, network, description). ' +
       `Prefer network "${process.env.X402_NETWORK ?? 'eip155:84532'}" (the agent wallet holds testnet USDC there); ` +
@@ -132,7 +132,7 @@ export function researchTools(emit: Emit) {
           redirect: 'manual',
         })
         let receipt: unknown = null
-        try { receipt = http.getPaymentSettleResponse((n) => res.headers.get(n)) } catch { /* tidak berbayar */ }
+        try { receipt = http.getPaymentSettleResponse((n) => res.headers.get(n)) } catch { /* not a paid endpoint */ }
         const text = (await res.text()).slice(0, 8000)
         if (receipt) emit({ type: 'paid', url, receipt })
         return { status: res.status, body: text, receipt }

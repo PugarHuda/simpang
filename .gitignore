@@ -50,3 +50,7 @@ playwright-report/
 
 .vercel
 .env*
+
+
+# the template is safe to publish; the README points at it
+!.env.example

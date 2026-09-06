@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import { store } from '@/lib/store'
 
-/** Preferensi yang dipelajari: constraint yang dibunuh user. >= 3x = "standing" dan
- *  disuntik ke scan sebagai keputusan yang sudah selesai. UI menampilkannya dan bisa
- *  melupakannya, supaya pembelajaran ini terlihat dan bisa dibatalkan. */
+/** Learned preferences: constraints the user has killed. >= 3x makes one "standing", and it
+ *  is injected into the scan as a settled decision. The UI lists them and can forget one, so
+ *  the learning is visible and reversible. */
 export async function GET() {
   const all = await store.priorAll()
   const prefs = Object.entries(all)

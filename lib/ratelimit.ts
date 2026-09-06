@@ -1,12 +1,12 @@
 import { Ratelimit } from '@upstash/ratelimit'
 import { Redis } from '@upstash/redis'
 
-/** /api/run dan /api/fork membakar uang model per panggilan dan terbuka di internet.
- *  Batas per IP (sliding window) + batas global harian. Dengan Redis: @upstash/ratelimit
- *  (bersama lintas instance); tanpa Redis: sliding window in-memory untuk satu proses.
- *  SIMPANG_RUN_LIMIT / SIMPANG_DAILY_LIMIT menimpa angka default. */
-const PER_IP = Number(process.env.SIMPANG_RUN_LIMIT ?? 8)          // per jam per IP
-const DAILY = Number(process.env.SIMPANG_DAILY_LIMIT ?? 150)       // semua IP per hari
+/** /api/run and /api/fork burn model money per call and are open to the internet.
+ *  A per-IP sliding window plus a global daily cap. With Redis: @upstash/ratelimit (shared across
+ *  instances); without Redis: an in-memory sliding window for the single process.
+ *  SIMPANG_RUN_LIMIT / SIMPANG_DAILY_LIMIT override the defaults. */
+const PER_IP = Number(process.env.SIMPANG_RUN_LIMIT ?? 8)          // per hour per IP
+const DAILY = Number(process.env.SIMPANG_DAILY_LIMIT ?? 150)       // all IPs, per day
 
 const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
 const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
@@ -44,13 +44,13 @@ if (url && token) {
 export const clientIp = (req: Request) =>
   req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || 'local'
 
-/** null kalau boleh lanjut; Response 429 kalau tidak. */
+/** null when the request may proceed; a 429 Response when it may not. */
 export async function rateLimited(req: Request): Promise<Response | null> {
   const v = await check(clientIp(req))
   if (v.ok) return null
   const secs = Math.max(1, Math.ceil(v.resetMs / 1000))
   return Response.json(
-    { error: v.scope === 'ip' ? `terlalu banyak run dari alamat ini, coba lagi dalam ${Math.ceil(secs / 60)} menit` : 'kuota harian instance ini habis' },
+    { error: v.scope === 'ip' ? `too many runs from this address, try again in ${Math.ceil(secs / 60)} min` : 'this instance is out of daily quota' },
     { status: 429, headers: { 'retry-after': String(secs) } },
   )
 }

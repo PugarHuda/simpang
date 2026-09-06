@@ -25,7 +25,7 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Jawaban agent dirender sebagai markdown (react-markdown + gfm). Gaya minimal, monospace. */
+/* The agent's answer is rendered as markdown (react-markdown + gfm). Minimal, monospace styling. */
 .md { line-height: 1.6; }
 .md h1, .md h2, .md h3 { color: #e5e5e5; font-weight: 600; margin: 1em 0 0.4em; }
 .md h1 { font-size: 15px; } .md h2 { font-size: 14px; } .md h3 { font-size: 13px; }

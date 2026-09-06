@@ -10,10 +10,10 @@ import { rateLimited } from '@/lib/ratelimit'
 
 export const maxDuration = 60
 
-/** SIMPANG sebagai PENJUAL data untuk agent lain: divergence scan sebagai API berbayar x402.
- *  Kirim prompt, bayar 0.02 USDC, dapat titik-titik keputusan + constraint siap suntik.
- *  Dideklarasikan ke Bazaar (discovery) supaya agent lain bisa menemukannya, dan tool
- *  paidFetch milik agent SIMPANG sendiri bisa membelinya: loop pembeli-penjual utuh. */
+/** SIMPANG as a data SELLER for other agents: the divergence scan as a paid x402 API.
+ *  Send a prompt, pay 0.02 USDC, get the decision points plus ready-to-inject constraints.
+ *  It is declared to the Bazaar (discovery) so other agents can find it, and SIMPANG's own
+ *  paidFetch tool can buy it: the buyer-seller loop closed end to end. */
 const Body = z.object({ prompt: z.string().trim().min(3).max(2000), repoContext: z.string().max(60_000).optional() })
 
 const handler = async (req: NextRequest): Promise<NextResponse<unknown>> => {

@@ -3,13 +3,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { createTwoFilesPatch } from 'diff'
 
-/** Repo sungguhan di disk. Default: examples/acme (aplikasi kecil dengan auth JWT).
- *  SIMPANG_REPO_DIR menunjuk ke repo lain. Tulisan agent masuk ke salinan per run,
- *  jadi repo asli tidak pernah disentuh; hasilnya unified diff nyata.
- *  Di serverless (Vercel) working copy hidup di tmpdir instance itu; file yang
- *  berubah juga disimpan ke store supaya fork di instance lain bisa melanjutkan. */
-// Path statis (process.cwd() + subfolder) supaya tracing bundel Next hanya membawa examples/,
-// bukan seluruh proyek. Override lewat env sengaja diabaikan tracer.
+/** A real repo on disk. Default: examples/acme (a small app with JWT auth).
+ *  SIMPANG_REPO_DIR points at another repo. The agent's writes land in a per-run copy, so the
+ *  original repo is never touched; the result is a real unified diff.
+ *  On serverless (Vercel) the working copy lives in that instance's tmpdir; the changed files
+ *  are also saved to the store so a fork on another instance can continue. */
+// A static path (process.cwd() + subfolder) so Next's bundle tracing pulls in examples/ only,
+// not the whole project. The env override is deliberately invisible to the tracer.
 export const REPO_DIR = process.env.SIMPANG_REPO_DIR
   ? path.resolve(/*turbopackIgnore: true*/ process.env.SIMPANG_REPO_DIR)
   : path.join(process.cwd(), 'examples', 'acme')
@@ -31,7 +31,7 @@ const safe = (root: string, rel: string) => {
   return p
 }
 
-/** Konteks untuk scan: isi semua file (repo contoh kecil; dipotong di 60 KB kalau repo besar). */
+/** Context for the scan: the contents of every file (the example repo is small; capped at 60 KB). */
 export function repoContext(): string {
   let out = ''
   for (const f of listFiles()) {
@@ -41,7 +41,7 @@ export function repoContext(): string {
   return out
 }
 
-/** Working copy lebih tua dari 2 jam dibuang; run-nya sudah lama selesai. */
+/** Working copies older than 2 hours are dropped; their runs finished long ago. */
 function prune() {
   if (!fs.existsSync(RUNS_DIR)) return
   const cutoff = Date.now() - 2 * 3600_000
@@ -51,8 +51,8 @@ function prune() {
   }
 }
 
-/** @param overlay file yang sudah ditulis run ini (dari store) kalau working copy-nya
- *  ada di instance lain. */
+/** @param overlay files this run already wrote (from the store), for when its working copy
+ *  lives on another instance. */
 export function workspace(runId: string, overlay: Record<string, string> = {}) {
   const dir = path.join(RUNS_DIR, runId)
   if (!fs.existsSync(dir)) {
@@ -76,7 +76,7 @@ export function workspace(runId: string, overlay: Record<string, string> = {}) {
       fs.mkdirSync(path.dirname(p), { recursive: true })
       fs.writeFileSync(p, content)
     },
-    /** File yang berbeda dari repo asli: dipersistenkan ke store. */
+    /** Files that differ from the original repo: these get persisted to the store. */
     changed: (): Record<string, string> => {
       const out: Record<string, string> = {}
       for (const f of new Set([...listFiles(REPO_DIR), ...listFiles(dir)])) {
@@ -85,7 +85,7 @@ export function workspace(runId: string, overlay: Record<string, string> = {}) {
       }
       return out
     },
-    /** Unified diff nyata antara repo asli dan hasil kerja agent (tanpa git: jalan di serverless). */
+    /** A real unified diff between the original repo and the agent's work (no git: it runs on serverless). */
     diff: (): string => {
       let out = ''
       for (const f of [...new Set([...listFiles(REPO_DIR), ...listFiles(dir)])].sort()) {
@@ -94,7 +94,7 @@ export function workspace(runId: string, overlay: Record<string, string> = {}) {
         out += `diff --git a/${f} b/${f}\n` +
           createTwoFilesPatch(before === null ? '/dev/null' : `a/${f}`, after === null ? '/dev/null' : `b/${f}`,
             before ?? '', after ?? '', undefined, undefined, { context: 3 })
-            .split('\n').slice(1).join('\n')   // buang baris "Index:" milik jsdiff
+            .split('\n').slice(1).join('\n')   // drop jsdiff's "Index:" line
       }
       return out
     },

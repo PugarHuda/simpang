@@ -10,12 +10,12 @@ export type Prefetch = {
   text: string; status: 'running' | 'done' | 'dropped'
 }
 
-/** Field yang dimiliki route /api/run (ditulis satu proses) vs field bersama
- *  (ditulis steer/unlock dari proses mana pun). Yang bersama disimpan terpisah
- *  supaya tidak ada read-modify-write yang saling menimpa. */
+/** Fields owned by the /api/run route (written by one process) vs shared fields (written by
+ *  steer/unlock from any process). The shared ones are stored separately so no
+ *  read-modify-write can clobber another. */
 export type RunBase = {
   id: string
-  owner: string                         // client id pemilik run (header x-simpang-client)
+  owner: string                         // client id of the run's owner (x-simpang-client header)
   prompt: string
   divergences: Divergence[]
   etaSeconds: number
@@ -25,9 +25,9 @@ export type RunBase = {
   startedAt: number
 }
 export type Run = RunBase & {
-  actions: Record<string, Action>       // divergenceId -> aksi user
-  committed: Record<string, number>     // divergenceId -> branchIdx yang benar-benar diambil main run
-  unlockedCount: number                 // divergensi ke-4+ yang sudah dibayar lewat x402
+  actions: Record<string, Action>       // divergenceId -> the user's action
+  committed: Record<string, number>     // divergenceId -> the branchIdx the main run actually took
+  unlockedCount: number                 // the 4th+ divergences already paid for via x402
   done: boolean
 }
 
@@ -52,7 +52,7 @@ interface Backend {
 }
 
 /* ------------------------------------------------------------- redis ---- */
-// Upstash lewat Vercel Marketplace memberi KV_REST_API_*; akun Upstash langsung memberi UPSTASH_REDIS_REST_*.
+// Upstash via the Vercel Marketplace gives KV_REST_API_*; a direct Upstash account gives UPSTASH_REDIS_REST_*.
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
 
@@ -88,7 +88,7 @@ function redisBackend(url: string, token: string): Backend {
     async setDone(id) { await r.set(k(id, ':done'), 1, { ex: TTL }); await r.zrem('runs:active', id) },
     async push(id, c) { await r.rpush(k(id, ':steer'), c); await r.expire(k(id, ':steer'), TTL) },
     async drain(id) {
-      // LRANGE + DEL dalam satu pipeline: antrian dikosongkan atomik per batas step.
+      // LRANGE + DEL in one pipeline: the queue is emptied atomically per step boundary.
       const [items] = await r.multi().lrange<string>(k(id, ':steer'), 0, -1).del(k(id, ':steer')).exec()
       return (items as string[]) ?? []
     },
@@ -98,10 +98,12 @@ function redisBackend(url: string, token: string): Backend {
       return !v ? {} : typeof v === 'string' ? JSON.parse(v) : v
     },
     async latestActive(exclude) {
-      // Run yang servernya mati di tengah jalan tidak pernah setDone: anggap basi setelah 15 menit.
-      const cutoff = Date.now() - 15 * 60_000
+      // A run whose server died mid-flight never calls setDone. It cannot outlive maxDuration
+      // (300s), so anything older than 8 minutes is a zombie: offering it via [tab] would hand
+      // someone a tree whose steering queue is never drained again.
+      const cutoff = Date.now() - 8 * 60_000
       await r.zremrangebyscore('runs:active', 0, cutoff)
-      // ZRANGE ... BYSCORE REV: batasnya max dulu, baru min.
+      // ZRANGE ... BYSCORE REV: max bound first, then min.
       const ids = await r.zrange<string[]>('runs:active', '+inf', cutoff, { byScore: true, rev: true, offset: 0, count: 5 })
       return ids.find((x) => x !== exclude)
     },
@@ -119,7 +121,7 @@ function redisBackend(url: string, token: string): Backend {
 }
 
 /* ------------------------------------------------------------ memory ---- */
-// Satu proses (dev lokal, tes). Prior tetap dipersistenkan ke disk supaya belajarnya tidak hilang.
+// Single process (local dev, tests). The prior is still persisted to disk so the learning survives.
 function memoryBackend(): Backend {
   const base = new Map<string, RunBase>()
   const actions = new Map<string, Record<string, Action>>()
@@ -179,13 +181,13 @@ export const store = {
     }
   },
   get: (id: string) => backend.load(id),
-  /** Run orang lain yang masih berjalan dan sudah punya pohon: bahan pohon multiplayer. */
+  /** Someone else's run that is still in flight and already has a tree: the multiplayer tree's input. */
   async others(exclude: string) {
     const id = await backend.latestActive(exclude)
     const run = id ? await backend.load(id) : undefined
     return run && !run.done && run.divergences.length ? run : undefined
   },
-  /** Divergensi yang boleh dilihat/dipangkas user: tier gratis + yang sudah dibayar. */
+  /** The divergences the user may see and prune: the free tier plus whatever was paid for. */
   visible: (r: Run) => r.divergences.slice(0, GUARDS.freeBranches + r.unlockedCount),
   locked: (r: Run) => Math.max(0, r.divergences.length - GUARDS.freeBranches - r.unlockedCount),
 }

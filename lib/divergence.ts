@@ -2,22 +2,22 @@ import { z } from 'zod'
 import { generateObject } from 'ai'
 import { GUARDS, MODELS } from './config'
 
-// Schema sengaja polos: tanpa .int()/.max()/tuple. Backend structured-output yang
-// ketat (Anthropic, OpenAI, Gemini, vLLM grammar) menolak minimum/maxLength/items[].
-// Batasan panjang & bentuk ditegakkan di qualityGate.
+// The schema is deliberately plain: no .int()/.max()/tuple. Strict structured-output backends
+// (Anthropic, OpenAI, Gemini, vLLM grammars) reject minimum/maxLength/items[].
+// Length and shape constraints are enforced in qualityGate instead.
 const BranchSchema = z.object({
   label: z.string(),
   sketch: z.string(),
   filesTouched: z.number(),
   costUsd: z.number(),
   confidence: z.number(),
-  // Di-generate DI SCAN YANG SAMA. Itulah kenapa KILL/PIN instan:
-  // tidak ada panggilan model kedua saat user menekan tombol.
+  // Generated IN THE SAME SCAN. That is why KILL/PIN is instant:
+  // there is no second model call when the user presses a key.
   constraintIfPinned: z.string(),
 })
-// constraintIfKilled TIDAK diminta dari model: model (luna, mistral) terbukti menukar
-// larangan antar-cabang. Dua cabang saling eksklusif, jadi kill = larang label ini +
-// paksa cabang lawan. Diturunkan deterministik di qualityGate.
+// constraintIfKilled is NOT asked of the model: models (luna, mistral) demonstrably swap the
+// prohibitions between branches. The two branches are mutually exclusive, so kill = forbid this
+// label + force the opposite branch. Derived deterministically in qualityGate.
 export type Branch = z.infer<typeof BranchSchema> & { constraintIfKilled: string }
 
 export const DivergenceSet = z.object({
@@ -66,9 +66,9 @@ Write labels, questions and constraints in the language of the user's prompt.
 Output only decisions the user would be annoyed to discover 90 seconds from now.
 Output an empty list if the prompt has no real decision points.`
 
-/** Buang divergensi palsu secara deterministik. Jangan berharap pada prompt saja. */
+/** Throw out fake divergences deterministically. Do not just hope the prompt holds. */
 export function qualityGate(set: DivergenceSet): Divergence[] {
-  // Beberapa model mengawali constraint dengan "// " atau "- ". Buang.
+  // Some models prefix the constraint with "// " or "- ". Strip it.
   const clean = (s: string) => s.replace(/^[\s/\-*]+/, '').trim()
   return set.divergences
     .filter((d) => d.branches.length === 2)
@@ -91,7 +91,7 @@ export function qualityGate(set: DivergenceSet): Divergence[] {
       const distinct = a.label.trim().toLowerCase() !== b.label.trim().toLowerCase()
       return lead < GUARDS.leadConfidenceCeiling && sums && distinct
     })
-    // id harus unik: tool `decide` memakainya sebagai enum.
+    // ids must be unique: the `decide` tool uses them as an enum.
     .filter((d, i, all) => all.findIndex((x) => x.id === d.id) === i)
     .slice(0, GUARDS.maxDivergences)
 }
@@ -115,8 +115,8 @@ export async function scan(prompt: string, repoContext: string, standing: string
   }
   try {
     let r = await once()
-    // Model menghasilkan divergensi tapi semua gagal gate (confidence tak berjumlah 1, pemimpin
-    // >= 0.85, label kembar): satu percobaan ulang dengan alasannya, selama budget masih ada.
+    // The model produced divergences but all of them failed the gate (confidences not summing to 1,
+    // leader >= 0.85, twin labels): retry once with the reason, while there is budget left.
     if (!r.divergences.length && r.raw > 0 && Date.now() - started < GUARDS.scanBudgetMs - 8000) {
       console.warn(`scan: ${r.raw} raw -> 0 after gate, retrying once`)
       r = await once('\n\nYour previous attempt was rejected: confidences must sum to 1.0, the leading branch must be ' +
@@ -124,7 +124,7 @@ export async function scan(prompt: string, repoContext: string, standing: string
     }
     return { divergences: r.divergences, etaSeconds: r.etaSeconds }
   } catch (err) {
-    // Scan gagal atau telat -> user cuma lihat loading biasa. Regresi nol.
+    // Scan failed or ran late -> the user just sees an ordinary loading screen. Zero regression.
     console.warn('scan dropped:', String(err).slice(0, 200))
     return { divergences: [], etaSeconds: 0 }
   }

@@ -4,8 +4,8 @@ import { bazaarHealth } from '@/lib/bazaar'
 
 export const maxDuration = 30
 
-/** Status sungguhan tiap integrasi: provider model, store, facilitator x402, katalog Bazaar,
- *  wallet agent. Untuk juri dan untuk kita sendiri saat sesuatu diam-diam mati. */
+/** The real status of every integration: model provider, store, x402 facilitator, Bazaar
+ *  catalog, agent wallet. For judges, and for us when something dies quietly. */
 export async function GET() {
   const t0 = Date.now()
   const [redis, facilitator, bazaar] = await Promise.all([
