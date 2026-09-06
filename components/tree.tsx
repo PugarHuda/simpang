@@ -66,8 +66,8 @@ export function Tree({
                   >
                     <span className="text-neutral-700 w-4">{key}</span>
                     <span className="w-52 truncate text-neutral-200">{b.label}</span>
-                    <span className="w-20 tabular-nums text-neutral-600">~{b.filesTouched} files</span>
-                    <span className="w-14 tabular-nums text-neutral-600">${b.costUsd.toFixed(2)}</span>
+                    <span className="w-20 tabular-nums text-neutral-600">{b.filesTouched > 0 ? `~${b.filesTouched} files` : ''}</span>
+                    <span className="w-14 tabular-nums text-neutral-600">{b.costUsd > 0 ? `$${b.costUsd.toFixed(2)}` : ''}</span>
                     <Bar v={b.confidence} />
                     <span className="hidden md:block flex-1 truncate text-neutral-600">{b.sketch}</span>
                   </div>

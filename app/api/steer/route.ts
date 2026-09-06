@@ -24,20 +24,18 @@ export async function POST(req: Request) {
   const b = d.branches[branchIdx]
   const constraint = verb === 'pin' ? b.constraintIfPinned : b.constraintIfKilled
 
-  await store.setAction(runId, divergenceId, { verb, branchIdx, at: Date.now() })
-  if (verb === 'kill') await store.bumpPrior(constraint)
-
   // Tiga tingkat degradasi. Tidak ada aksi user yang menguap.
   const committed = run.committed[divergenceId]
   const conflicts = committed !== undefined && (verb === 'pin' ? committed !== branchIdx : committed === branchIdx)
-  if (conflicts) {
-    // Main run sudah memilih arah lain (mungkin sudah selesai): koreksi lewat fork di working copy.
-    return Response.json({ status: 'late', injected: constraint, forkable: true })
-  }
-  if (run.done) {
-    // Sudah selesai dan tidak bertentangan: tidak ada yang perlu diubah; prior sudah dicatat.
-    return Response.json({ status: 'finished', injected: constraint })
-  }
-  await store.push(runId, constraint)
-  return Response.json({ status: 'queued', injected: constraint })
+  const status = conflicts ? 'late' : run.done ? 'finished' : 'queued'
+
+  // Semua tulisan paralel: satu round-trip Redis, bukan tiga. Klaim UX-nya "efek < 1 detik".
+  await Promise.all([
+    store.setAction(runId, divergenceId, { verb, branchIdx, at: Date.now() }),
+    verb === 'kill' ? store.bumpPrior(constraint) : null,
+    status === 'queued' ? store.push(runId, constraint) : null,
+  ])
+  // late: main run sudah memilih arah lain (mungkin sudah selesai) -> koreksi lewat fork.
+  // finished: selesai dan sejalan -> tidak ada yang diubah; prior sudah dicatat.
+  return Response.json(status === 'late' ? { status, injected: constraint, forkable: true } : { status, injected: constraint })
 }

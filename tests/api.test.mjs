@@ -96,4 +96,22 @@ const after = await post('/api/steer', { runId, divergenceId: d0.id, branchIdx: 
 a(after.status === 'finished', 'steer sejalan setelah selesai -> finished (masuk prior)')
 const lateR = await post('/api/steer', { runId, divergenceId: d0.id, branchIdx: 1, verb: 'kill' }).then((r) => r.json())
 a(lateR.status === 'late' && lateR.forkable, 'steer bertentangan setelah selesai -> late + forkable')
-console.log('\nOK — validasi, scan, steer, x402 (SDK resmi + wallet asli), multiplayer, diff, kalibrasi')
+// 8. Prompt non-kode: agent harus memakai tool data hidup, bukan bilang "tidak punya akses".
+const r2 = await post('/api/run', { prompt: 'analisa harga bitcoin 7 hari terakhir dalam USD, sebutkan angka harian' })
+const rd2 = r2.body.getReader(); let buf2 = '', tools = [], text2 = '', done2 = null
+for (;;) {
+  const { done, value } = await rd2.read(); if (done) break
+  buf2 += dec.decode(value, { stream: true }); const parts = buf2.split('\n\n'); buf2 = parts.pop()
+  for (const p of parts) {
+    if (!p.startsWith('data: ')) continue
+    const e = JSON.parse(p.slice(6))
+    if (e.type === 'tool') tools.push(e.name)
+    if (e.type === 'text') text2 += e.delta
+    if (e.type === 'done') done2 = e
+  }
+}
+a(tools.some((t) => t === 'market' || t === 'search'), `research: agent memakai tool data hidup (${[...new Set(tools)].join(',')})`)
+a(/\d{2},\d{3}|\d{5}/.test(text2) && !/tidak (punya|memiliki) akses/i.test(text2), `research: jawaban berisi angka harga sungguhan (${text2.length} chars)`)
+a(done2, 'research: selesai')
+
+console.log('\nOK — validasi, scan, steer, x402 (SDK resmi + wallet asli), multiplayer, diff, kalibrasi, research tools')

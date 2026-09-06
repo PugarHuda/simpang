@@ -63,6 +63,14 @@ lewat `SIMPANG_MAIN_MODEL` / `SIMPANG_SCAN_MODEL`.
 lain lewat `SIMPANG_REPO_DIR`. Agent membaca dan menulis di salinan per run
 (`.simpang/runs/<id>/`); repo asli tidak pernah disentuh.
 
+**Tool data hidup (`lib/tools.ts`).** Prompt bukan hanya soal kode. Agent punya
+`webSearch` (Venice web search, jawaban + sitasi, kunci yang sama dengan model),
+`marketData` (harga harian kripto dari CoinGecko, publik), dan `paidFetch`
+(sisi PEMBELI x402: endpoint berbayar dibayar otomatis dari wallet agent
+`X402_BUYER_PRIVATE_KEY`, USDC Base Sepolia). Prompt "analisa harga bitcoin 7
+hari terakhir" menghasilkan analisa dengan angka sungguhan, bukan "saya tidak
+punya akses data".
+
 ## Gerbang bayar x402
 
 Scan menghasilkan sampai 5 divergensi. Tiga pertama gratis; tiap divergensi

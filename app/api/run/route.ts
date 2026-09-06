@@ -4,6 +4,7 @@ import { GUARDS, MODELS, HAS_MODEL, X402 } from '@/lib/config'
 import { scan, type Divergence } from '@/lib/divergence'
 import { store, type Run } from '@/lib/store'
 import { listFiles, repoContext, workspace } from '@/lib/repo'
+import { researchTools } from '@/lib/tools'
 
 export const maxDuration = 300
 
@@ -76,9 +77,13 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
     : ' State each decision on its own line as: "Decision - <axis>: going with <choice>."'
   const ids = divergences.map((d) => d.id)
 
-  const system = 'You are a senior engineer refactoring a small codebase. Read before you write. ' +
-    'Write complete files with writeFile; the result is shown to the user as a real diff. ' +
-    'Finish with a short summary of what changed.' + vocabulary
+  // Tugas kode: repo tools. Tugas riset/analisa: tool data hidup. Jawaban akhir = deliverable.
+  const system = 'You are a capable agent. Decide from the request what kind of task it is.\n' +
+    '- Code task: read the repo with readFile before writing; write complete files with writeFile ' +
+    '(the user sees a real diff); finish with a short summary.\n' +
+    '- Research/analysis task (prices, news, comparisons, reports): fetch live data with marketData / webSearch / ' +
+    'paidFetch, then write the full deliverable as your final answer in markdown with concrete numbers, dates and sources. ' +
+    'Never say you lack data access: you have these tools. Answer in the language of the request.' + vocabulary
   const steering: string[] = []   // semua directive yang sudah masuk; berlaku sampai run selesai
 
   const result = streamText({
@@ -88,8 +93,9 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
     // Tanpa ini, error provider menutup stream dalam diam dan user cuma lihat layar kosong.
     onError: ({ error }) => emit({ type: 'error', message: String(error) }),
     system,
-    prompt: `${prompt}\n\nFiles in the repo: ${listFiles().join(', ')}`,
+    prompt: `${prompt}\n\nFiles in the repo (only relevant for code tasks): ${listFiles().join(', ')}`,
     tools: {
+      ...researchTools(emit),
       readFile: tool({
         description: 'Read a file from the repo',
         inputSchema: z.object({ path: z.string() }),
@@ -180,10 +186,13 @@ async function prefetch(run: Run, context: string, emit: Emit) {
       const { text } = await generateText({
         model: MODELS.prefetch,
         maxOutputTokens: 700,
-        system: 'You prepare a ready-to-apply follow-up for an engineer. Be concrete and terse: ' +
-          'list the files to touch, then the key code snippet. No preamble.',
+        system: 'You prepare a ready-to-use alternative for a task. Be concrete and terse, no preamble. ' +
+          'If the task is about code: the files to touch, then the key snippet. Otherwise: the alternative ' +
+          'deliverable itself in outline form (what changes, what it would show, what it needs). ' +
+          'Answer in the language of the task.',
         prompt: `Task: ${run.prompt}\n\nThe agent will likely choose "${d.branches[1 - i].label}" for the decision "${d.axis}". ` +
-          `Prepare the alternative "${b.label}" (${b.sketch}) so the user can switch with one action.\n\nRepo:\n${context}`,
+          `Prepare the alternative "${b.label}" (${b.sketch}) so the user can switch with one action.` +
+          (/\b(refactor|code|file|api|bug|test|implement|migrate|fix)\b/i.test(run.prompt) ? `\n\nRepo:\n${context}` : ''),
       })
       const fresh = await store.get(run.id)
       const killed = fresh?.actions[d.id]?.verb === 'kill' && fresh.actions[d.id].branchIdx === i

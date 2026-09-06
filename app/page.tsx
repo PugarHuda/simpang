@@ -212,7 +212,14 @@ export default function Page() {
           else if (!e.divergences.length) setScanNote('tidak ada keputusan nyata di prompt ini · panel diam')
         }
         if (e.type === 'text') setOut((o) => o + e.delta)
-        if (e.type === 'tool') setActivity(e.name === 'read' ? `reading ${e.path}` : `writing ${e.path} (${e.lines} lines)`)
+        if (e.type === 'tool') setActivity(
+          e.name === 'read' ? `reading ${e.path}`
+          : e.name === 'write' ? `writing ${e.path} (${e.lines} lines)`
+          : e.name === 'search' ? `searching the web: ${e.path}`
+          : e.name === 'market' ? `fetching market data: ${e.path}`
+          : e.name === 'paid' ? `buying via x402: ${e.path}`
+          : `${e.name} ${e.path}`)
+        if (e.type === 'paid') flash(`x402 paid · ${e.url} · tx ${(e.receipt?.transaction ?? '').slice(0, 10)}…`, 5000)
         if (e.type === 'step') setActivity((a) => a || `step ${e.n}`)
         if (e.type === 'commit') setCommitted((c) => ({ ...c, [e.divergenceId]: e.branchIdx }))
         if (e.type === 'applied') flash(`applied: ${e.constraints.join(' / ')}`)
