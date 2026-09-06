@@ -4,25 +4,28 @@ import { GUARDS, MODELS } from '@/lib/config'
 import { store } from '@/lib/store'
 import { workspace } from '@/lib/repo'
 
+export const maxDuration = 300
+
 const Body = z.object({ runId: z.string().uuid(), divergenceId: z.string().min(1), branchIdx: z.union([z.literal(0), z.literal(1)]) })
 
-/** Fork koreksi: TIDAK mengulang dari nol. Agent bekerja di working copy yang sama,
- *  merevisi hanya yang bergantung pada keputusan itu, dan diff-nya diperbarui.
- *  Misprediction penalty jadi murah. */
+/** Fork koreksi: TIDAK mengulang dari nol. Agent bekerja di working copy yang sama
+ *  (dihidupkan lagi dari store kalau instance-nya beda), merevisi hanya yang bergantung
+ *  pada keputusan itu, dan diff-nya diperbarui. Misprediction penalty jadi murah. */
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: 'runId, divergenceId, branchIdx required' }, { status: 400 })
   const { runId, divergenceId, branchIdx } = parsed.data
-  const run = store.get(runId)
+  const run = await store.get(runId)
   const d = run?.divergences.find((x) => x.id === divergenceId)
   if (!run || !d) return Response.json({ error: 'not found' }, { status: 404 })
   const b = d.branches[branchIdx]
-  const ws = workspace(runId)
+  const ws = workspace(runId, await store.loadFiles(runId))
   run.committed[divergenceId] = branchIdx   // fork = koreksi keputusan yang sudah lewat
+  await store.setCommit(runId, divergenceId, branchIdx)
 
   const result = streamText({
     model: MODELS.main,
-    stopWhen: stepCountIs(10),
+    stopWhen: stepCountIs(12),
     maxOutputTokens: GUARDS.maxOutputTokens,
     system: 'You are revising your own earlier refactor. Change ONLY what depends on the decision below. ' +
       'Read the current files before writing. Keep everything else byte-identical. ' +
@@ -43,7 +46,12 @@ export async function POST(req: Request) {
         execute: async ({ path, content }) => { ws.write(path, content); return `wrote ${path}` },
       }),
     },
-    onFinish: () => { run.diff = ws.diff() },
+    onFinish: async ({ text }) => {
+      run.diff = ws.diff()
+      run.output += `\n${text}`
+      await store.saveFiles(runId, ws.changed())
+      await store.saveBase(run)
+    },
   })
   return result.toTextStreamResponse()
 }

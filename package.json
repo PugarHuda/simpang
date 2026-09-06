@@ -12,11 +12,13 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.44",
     "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@upstash/redis": "^1.38.4",
     "@x402/core": "^2.25.0",
     "@x402/evm": "^2.25.0",
     "@x402/fetch": "^2.25.0",
     "@x402/next": "^2.25.0",
     "ai": "^7.0.92",
+    "diff": "^8.0.4",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -26,6 +28,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
+    "@types/diff": "^7.0.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

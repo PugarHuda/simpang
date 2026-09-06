@@ -17,6 +17,7 @@ export async function POST(req: Request) {
   const { prompt } = parsed.data
   const runId = crypto.randomUUID()
   const run = store.create(runId, prompt)
+  await store.saveBase(run)
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
 
       // Scan dan main run START BERSAMAAN. Scan tidak pernah memblokir main run.
       const context = repoContext()
-      const scanning = scan(prompt, context, store.standing()).then(({ divergences, etaSeconds }) => {
+      const scanning = scan(prompt, context, await store.standing()).then(async ({ divergences, etaSeconds }) => {
         run.etaSeconds = etaSeconds
         // Wait yang diperkirakan terlalu pendek: panel tidak layak muncul. Tanpa pohon = tanpa steering.
         if (etaSeconds && etaSeconds < GUARDS.minEtaSeconds) {
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
           return
         }
         run.divergences = divergences
+        await store.saveBase(run)   // steer/unlock/others di proses lain butuh pohonnya
         if (divergences.length) {
           emit({ type: 'scan', divergences: store.visible(run), locked: store.locked(run), price: X402.price, etaSeconds })
           void prefetch(run, context, emit)   // cabang alternatif dihitung SELAMA menunggu
@@ -44,12 +46,12 @@ export async function POST(req: Request) {
 
       try {
         await scanning // pohon harus ada sebelum user bisa memangkasnya
-        await liveRun(runId, prompt, emit)
+        await liveRun(run, prompt, emit)
       } catch (err) {
         emit({ type: 'error', message: String(err) })
       }
 
-      await finish(runId, emit)
+      await finish(run, emit)
       open = false
       controller.close()
     },
@@ -62,15 +64,14 @@ export async function POST(req: Request) {
 
 /* ---------------------------------------------------------------- main ---- */
 
-async function liveRun(runId: string, prompt: string, emit: Emit) {
-  const run = store.get(runId)!
-  const ws = workspace(runId)
+async function liveRun(run: Run, prompt: string, emit: Emit) {
+  const ws = workspace(run.id)
   const divergences = run.divergences
 
   // Main run diberi kosakata pohon: id, sumbu, dua label persis. Commit = tool call `decide`.
   const vocabulary = divergences.length
     ? '\n\nDecision points already identified for this task. BEFORE writing any file, call the `decide` tool ' +
-      'once per decision point you have resolved (you may call several in one step):\n' +
+      'once per decision point you have resolved. This is MANDATORY before the first writeFile:\n' +
       divergences.map((d) => `- ${d.id} (${d.axis}): 0 = "${d.branches[0].label}", 1 = "${d.branches[1].label}"`).join('\n')
     : ' State each decision on its own line as: "Decision - <axis>: going with <choice>."'
   const ids = divergences.map((d) => d.id)
@@ -108,19 +109,24 @@ async function liveRun(runId: string, prompt: string, emit: Emit) {
       }),
       // Commit = tool call, bukan pola teks. Model jauh lebih patuh pada schema
       // daripada pada format kalimat, dan hasilnya langsung terstruktur.
+      // branch menerima 0/1 sebagai angka ATAU string: qwen mengirim "0" dan schema
+      // yang ketat membuatnya gagal berkali-kali tanpa pernah mencatat commit.
       decide: tool({
         description: 'Record which branch you are taking for an identified decision point.',
         inputSchema: z.object({
           decision: ids.length ? z.enum(ids as [string, ...string[]]) : z.string(),
-          branch: z.union([z.literal(0), z.literal(1)]),
-          why: z.string().max(200),
+          branch: z.union([z.number(), z.string()]).describe('0 or 1'),
+          why: z.string().describe('one short sentence'),
         }),
         execute: async ({ decision, branch, why }) => {
           const d = run.divergences.find((x) => x.id === decision)
           if (!d) return 'unknown decision'
-          run.committed[d.id] = branch
-          emit({ type: 'commit', divergenceId: d.id, branchIdx: branch, why })
-          return `recorded: ${d.axis} -> ${d.branches[branch].label}`
+          const idx = Number(branch)
+          if (idx !== 0 && idx !== 1) return 'branch must be 0 or 1'
+          run.committed[d.id] = idx
+          await store.setCommit(run.id, d.id, idx)
+          emit({ type: 'commit', divergenceId: d.id, branchIdx: idx, why: String(why).slice(0, 200) })
+          return `recorded: ${d.axis} -> ${d.branches[idx].label}`
         },
       }),
     },
@@ -129,7 +135,7 @@ async function liveRun(runId: string, prompt: string, emit: Emit) {
     // SDK 7 melarang pesan system di tengah messages; yang benar: timpa `instructions` per step.
     prepareStep: async ({ stepNumber }) => {
       emit({ type: 'step', n: stepNumber })
-      const pending = store.drain(runId)
+      const pending = await store.drain(run.id)
       if (pending.length) {
         steering.push(...pending)
         emit({ type: 'applied', constraints: pending })
@@ -148,9 +154,11 @@ async function liveRun(runId: string, prompt: string, emit: Emit) {
   for await (const delta of result.textStream) {
     run.output += delta
     emit({ type: 'text', delta })
-    detectCommits(runId, emit)
+    await detectCommits(run, emit)
   }
   run.diff = ws.diff()
+  await store.saveFiles(run.id, ws.changed())   // fork di instance lain bisa melanjutkan working copy ini
+  await store.saveBase(run)
   emit({ type: 'patch', diff: run.diff, finishReason: await result.finishReason })
 }
 
@@ -159,7 +167,7 @@ async function liveRun(runId: string, prompt: string, emit: Emit) {
 /** Cabang yang kemungkinan TIDAK diambil main run (confidence lebih rendah) dihitung
  *  sungguhan selama menunggu: rencana konkret + potongan kode, siap saat jawaban mendarat.
  *  Kalau user membunuh cabang itu, hitungannya dibuang; kalau main run justru memilihnya,
- *  hasilnya tetap dipakai sebagai konfirmasi. */
+ *  hasilnya disembunyikan. */
 async function prefetch(run: Run, context: string, emit: Emit) {
   const targets = run.divergences
     .slice(0, GUARDS.prefetchCap)
@@ -177,7 +185,8 @@ async function prefetch(run: Run, context: string, emit: Emit) {
         prompt: `Task: ${run.prompt}\n\nThe agent will likely choose "${d.branches[1 - i].label}" for the decision "${d.axis}". ` +
           `Prepare the alternative "${b.label}" (${b.sketch}) so the user can switch with one action.\n\nRepo:\n${context}`,
       })
-      const killed = run.actions[d.id]?.verb === 'kill' && run.actions[d.id].branchIdx === i
+      const fresh = await store.get(run.id)
+      const killed = fresh?.actions[d.id]?.verb === 'kill' && fresh.actions[d.id].branchIdx === i
       Object.assign(entry, { text, status: killed ? 'dropped' : 'done' })
       emit({ type: 'prefetch', divergenceId: d.id, branchIdx: i, label: b.label, status: entry.status })
     } catch (err) {
@@ -192,9 +201,7 @@ async function prefetch(run: Run, context: string, emit: Emit) {
  *  tool decide. Cocokkan sumbu lalu label persis; irisan kata hanya kalau diparafrase. */
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 const words = (s: string) => new Set(norm(s).split(' ').filter((w) => w.length >= 3))
-function detectCommits(runId: string, emit: Emit) {
-  const run = store.get(runId)
-  if (!run) return
+async function detectCommits(run: Run, emit: Emit) {
   for (const m of run.output.matchAll(/Decision - ([^:\n]+): going with ([^\n]+?)\.?(?:\n|$)/g)) {
     const axis = norm(m[1]), choice = norm(m[2])
     const d = run.divergences.find((x) => !(x.id in run.committed) &&
@@ -207,6 +214,7 @@ function detectCommits(runId: string, emit: Emit) {
       idx = score[0] > score[1] ? 0 : 1
     }
     run.committed[d.id] = idx
+    await store.setCommit(run.id, d.id, idx)
     emit({ type: 'commit', divergenceId: d.id, branchIdx: idx })
   }
 }
@@ -232,6 +240,7 @@ async function classifyCommits(run: Run, emit: Emit) {
       const d = open.find((o) => o.id === x.id)
       if (!d || !x.confident || (x.branch !== 0 && x.branch !== 1)) continue
       run.committed[d.id] = x.branch
+      await store.setCommit(run.id, d.id, x.branch)
       emit({ type: 'commit', divergenceId: d.id, branchIdx: x.branch, why: 'classified from diff' })
     }
   } catch (err) {
@@ -239,13 +248,14 @@ async function classifyCommits(run: Run, emit: Emit) {
   }
 }
 
-async function finish(runId: string, emit: Emit) {
-  const run = store.get(runId)!
+async function finish(run: Run, emit: Emit) {
   await classifyCommits(run, emit)
-  run.done = true
-  const acted = Object.entries(run.committed).filter(([id]) => run.actions[id])
+
+  // Aksi user datang dari proses mana pun: baca state bersama, bukan salinan lokal.
+  const shared = (await store.get(run.id)) ?? run
+  const acted = Object.entries(run.committed).filter(([id]) => shared.actions[id])
   const hits = acted.filter(([id, idx]) => {
-    const a = run.actions[id]
+    const a = shared.actions[id]
     return a.verb === 'pin' ? a.branchIdx === idx : a.branchIdx !== idx
   })
   const calibration = acted.length ? hits.length / acted.length : null
@@ -258,9 +268,11 @@ async function finish(runId: string, emit: Emit) {
   // Hanya cabang yang tidak dibunuh user dan tidak diambil main run: follow-up yang sudah jadi.
   const ready = run.prefetch.filter((p) =>
     p.status === 'done' &&
-    !(run.actions[p.divergenceId]?.verb === 'kill' && run.actions[p.divergenceId].branchIdx === p.branchIdx) &&
+    !(shared.actions[p.divergenceId]?.verb === 'kill' && shared.actions[p.divergenceId].branchIdx === p.branchIdx) &&
     run.committed[p.divergenceId] !== p.branchIdx)
 
+  await store.saveBase(run)
+  await store.setDone(run.id)
   emit({
     type: 'done',
     calibration,

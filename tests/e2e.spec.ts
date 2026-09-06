@@ -53,29 +53,35 @@ test('kill mengubah eksekusi: steer -> injected -> commit ke cabang lawan -> kal
 })
 
 test('pangkasan terlambat tidak menguap: late -> [f] fork merevisi di working copy yang sama', async ({ page }) => {
+  test.setTimeout(540_000)   // dua run agent berturut-turut: main run lalu fork
   await startRun(page)
-  // Tunggu commit pertama, lalu bunuh cabang yang SUDAH dimenangkan -> late.
+  // Tunggu commit pertama (tool decide di tengah run, atau classifier di akhir),
+  // lalu bunuh cabang yang SUDAH dimenangkan -> late, apa pun status run-nya.
   const won = page.locator('[data-state="won"]').first()
-  await expect(won).toBeVisible({ timeout: 200_000 })
+  await expect(won).toBeVisible({ timeout: 240_000 })
   const key = (await won.locator('span').first().textContent())!.trim()
   const code = /\d/.test(key) ? `Digit${key}` : key === '-' ? 'Minus' : 'Equal'
+  const diffBefore = await page.getByTestId('diff').textContent().catch(() => '')
   await page.keyboard.press(code)
   await expect(page.getByTestId('toast')).toContainText('late')
   await expect(page.getByTestId('legend')).toContainText('[f] fork koreksi')
 
   await page.keyboard.press('f')
   await expect(page.getByTestId('toast')).toContainText('forking')
-  await expect(page.getByTestId('output')).toContainText(/forked/i, { timeout: 200_000 })
-  await expect(page.getByTestId('toast')).toContainText('forked · diff diperbarui', { timeout: 60_000 })
+  // Fork adalah run agent kedua di working copy yang sama; selesainya ditandai toast + diff baru.
+  await expect(page.getByTestId('toast')).toContainText('forked · diff diperbarui', { timeout: 240_000 })
   await expect(won).toHaveAttribute('data-state', 'lost')
+  await expect(page.getByTestId('diff')).toBeVisible()
+  expect(await page.getByTestId('diff').textContent()).not.toBe(diffBefore)
 })
 
 test('pohon multiplayer: [tab] mengambil run orang lain dan pangkasanmu masuk ke antrian mereka', async ({ browser, request }) => {
   const a = await browser.newPage()
   const b = await browser.newPage()
   await startRun(a, 'add rate limiting to the login endpoint')
-  const theirs = await request.get('/api/others?exclude=none').then((r) => r.json())
-  expect(theirs.prompt).toBe('add rate limiting to the login endpoint')
+  const theirsRes = await request.get('/api/others?exclude=none')
+  const theirs = await theirsRes.json()
+  expect(theirs, `others -> ${theirsRes.status()} ${JSON.stringify(theirs).slice(0, 200)}`).toHaveProperty('prompt', 'add rate limiting to the login endpoint')
 
   await startRun(b)
   await b.keyboard.press('Tab')

@@ -14,9 +14,8 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: 'runId, divergenceId, branchIdx (0|1), verb (kill|pin) required' }, { status: 400 })
   const { runId, divergenceId, branchIdx, verb } = parsed.data
-  const run = store.get(runId)
+  const run = await store.get(runId)
   if (!run) return Response.json({ error: 'no such run' }, { status: 404 })
-  if (run.done) return Response.json({ status: 'finished', error: 'run already finished' }, { status: 409 })
 
   const d = run.divergences.find((x) => x.id === divergenceId)
   if (!d) return Response.json({ error: 'no such divergence' }, { status: 404 })
@@ -25,19 +24,20 @@ export async function POST(req: Request) {
   const b = d.branches[branchIdx]
   const constraint = verb === 'pin' ? b.constraintIfPinned : b.constraintIfKilled
 
-  run.actions[divergenceId] = { verb, branchIdx, at: Date.now() }
-  if (verb === 'kill') store.bumpPrior(constraint)
+  await store.setAction(runId, divergenceId, { verb, branchIdx, at: Date.now() })
+  if (verb === 'kill') await store.bumpPrior(constraint)
 
   // Tiga tingkat degradasi. Tidak ada aksi user yang menguap.
   const committed = run.committed[divergenceId]
-  if (committed === undefined) {
-    store.push(runId, constraint)
-    return Response.json({ status: 'queued', injected: constraint })
-  }
-  const conflicts = verb === 'pin' ? committed !== branchIdx : committed === branchIdx
+  const conflicts = committed !== undefined && (verb === 'pin' ? committed !== branchIdx : committed === branchIdx)
   if (conflicts) {
+    // Main run sudah memilih arah lain (mungkin sudah selesai): koreksi lewat fork di working copy.
     return Response.json({ status: 'late', injected: constraint, forkable: true })
   }
-  store.push(runId, constraint)
+  if (run.done) {
+    // Sudah selesai dan tidak bertentangan: tidak ada yang perlu diubah; prior sudah dicatat.
+    return Response.json({ status: 'finished', injected: constraint })
+  }
+  await store.push(runId, constraint)
   return Response.json({ status: 'queued', injected: constraint })
 }

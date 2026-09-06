@@ -1,15 +1,23 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { createTwoFilesPatch } from 'diff'
 
 /** Repo sungguhan di disk. Default: examples/acme (aplikasi kecil dengan auth JWT).
- *  SIMPANG_REPO_DIR menunjuk ke repo lain. Tulisan agent masuk ke salinan per run di
- *  .simpang/runs/<id>/, jadi repo asli tidak pernah disentuh; hasilnya unified diff nyata. */
-export const REPO_DIR = path.resolve(process.env.SIMPANG_REPO_DIR ?? 'examples/acme')
-const RUNS_DIR = path.resolve('.simpang/runs')
+ *  SIMPANG_REPO_DIR menunjuk ke repo lain. Tulisan agent masuk ke salinan per run,
+ *  jadi repo asli tidak pernah disentuh; hasilnya unified diff nyata.
+ *  Di serverless (Vercel) working copy hidup di tmpdir instance itu; file yang
+ *  berubah juga disimpan ke store supaya fork di instance lain bisa melanjutkan. */
+// Path statis (process.cwd() + subfolder) supaya tracing bundel Next hanya membawa examples/,
+// bukan seluruh proyek. Override lewat env sengaja diabaikan tracer.
+export const REPO_DIR = process.env.SIMPANG_REPO_DIR
+  ? path.resolve(/*turbopackIgnore: true*/ process.env.SIMPANG_REPO_DIR)
+  : path.join(process.cwd(), 'examples', 'acme')
+const RUNS_DIR = process.env.VERCEL ? path.join(os.tmpdir(), 'simpang-runs') : path.join(process.cwd(), '.simpang', 'runs')
 const SKIP = new Set(['node_modules', '.git', '.next', '.simpang'])
 
 export function listFiles(dir = REPO_DIR, base = dir): string[] {
+  if (!fs.existsSync(dir)) return []
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     if (SKIP.has(e.name)) return []
     const p = path.join(dir, e.name)
@@ -43,39 +51,52 @@ function prune() {
   }
 }
 
-export function workspace(runId: string) {
+/** @param overlay file yang sudah ditulis run ini (dari store) kalau working copy-nya
+ *  ada di instance lain. */
+export function workspace(runId: string, overlay: Record<string, string> = {}) {
   const dir = path.join(RUNS_DIR, runId)
   if (!fs.existsSync(dir)) {
     prune()
     fs.cpSync(REPO_DIR, dir, { recursive: true, filter: (s) => !SKIP.has(path.basename(s)) })
+    for (const [rel, content] of Object.entries(overlay)) {
+      const p = safe(dir, rel)
+      fs.mkdirSync(path.dirname(p), { recursive: true })
+      fs.writeFileSync(p, content)
+    }
+  }
+  const read = (root: string, rel: string) => {
+    const p = safe(root, rel)
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
   }
   return {
     dir,
-    read: (rel: string) => {
-      const p = safe(dir, rel)
-      return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
-    },
+    read: (rel: string) => read(dir, rel),
     write: (rel: string, content: string) => {
       const p = safe(dir, rel)
       fs.mkdirSync(path.dirname(p), { recursive: true })
       fs.writeFileSync(p, content)
     },
-    /** Unified diff nyata antara repo asli dan hasil kerja agent. */
-    diff: (): string => {
-      // Path relatif dari cwd supaya header diff bersih (tanpa kutip/backslash Windows),
-      // lalu prefix repo dan working copy dibuang: tinggal a/<file> b/<file>.
-      const rel = (p: string) => path.relative(process.cwd(), p).split(path.sep).join('/')
-      let raw = ''
-      try {
-        raw = execFileSync('git', ['diff', '--no-index', '--no-color', '--', rel(REPO_DIR), rel(dir)], { encoding: 'utf8', cwd: process.cwd(), stdio: ['ignore', 'pipe', 'ignore'] })
-      } catch (e) {
-        // git diff --no-index keluar dengan kode 1 kalau ada perbedaan; stdout-nya tetap diff-nya.
-        raw = (e as { stdout?: string }).stdout ?? ''
+    /** File yang berbeda dari repo asli: dipersistenkan ke store. */
+    changed: (): Record<string, string> => {
+      const out: Record<string, string> = {}
+      for (const f of new Set([...listFiles(REPO_DIR), ...listFiles(dir)])) {
+        const after = read(dir, f)
+        if (after !== null && after !== read(REPO_DIR, f)) out[f] = after
       }
-      // File baru memakai path working copy di sisi a/ juga; file terhapus memakai path repo di sisi b/.
-      return raw
-        .replaceAll(`a/${rel(REPO_DIR)}/`, 'a/').replaceAll(`a/${rel(dir)}/`, 'a/')
-        .replaceAll(`b/${rel(dir)}/`, 'b/').replaceAll(`b/${rel(REPO_DIR)}/`, 'b/')
+      return out
+    },
+    /** Unified diff nyata antara repo asli dan hasil kerja agent (tanpa git: jalan di serverless). */
+    diff: (): string => {
+      let out = ''
+      for (const f of [...new Set([...listFiles(REPO_DIR), ...listFiles(dir)])].sort()) {
+        const before = read(REPO_DIR, f), after = read(dir, f)
+        if (before === after) continue
+        out += `diff --git a/${f} b/${f}\n` +
+          createTwoFilesPatch(before === null ? '/dev/null' : `a/${f}`, after === null ? '/dev/null' : `b/${f}`,
+            before ?? '', after ?? '', undefined, undefined, { context: 3 })
+            .split('\n').slice(1).join('\n')   // buang baris "Index:" milik jsdiff
+      }
+      return out
     },
   }
 }

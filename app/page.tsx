@@ -75,7 +75,9 @@ export default function Page() {
     // Pangkasan terlambat: main run sudah commit ke cabang lawan. Simpan target
     // koreksinya (cabang yang seharusnya) supaya [f] bisa fork tanpa mengulang.
     if (r.status === 'late' && !helping) setLate({ divergenceId, branchIdx: verb === 'pin' ? branchIdx : 1 - branchIdx })
-    flash(r.status === 'late' ? `⚠ late · [f] fork koreksi` : `${verb === 'kill' ? 'killed' : 'pinned'} · injected: "${r.injected}"`)
+    flash(r.status === 'late' ? `⚠ late · [f] fork koreksi`
+      : r.status === 'finished' ? `run sudah selesai dan sejalan · dicatat sebagai preferensi`
+      : `${verb === 'kill' ? 'killed' : 'pinned'} · injected: "${r.injected}"`)
   }, [flash])
 
   const fork = useCallback(async () => {

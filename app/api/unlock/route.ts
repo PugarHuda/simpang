@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withX402 } from '@x402/next'
-import { X402 } from '@/lib/config'
+import { X402, GUARDS } from '@/lib/config'
 import { x402Server } from '@/lib/x402'
 import { store } from '@/lib/store'
 
@@ -10,12 +10,12 @@ import { store } from '@/lib/store'
  *  runId lewat query karena body request sudah bisa dibaca SDK. */
 const handler = async (req: NextRequest): Promise<NextResponse<unknown>> => {
   const runId = req.nextUrl.searchParams.get('runId') ?? ''
-  const run = store.get(runId)
+  const run = await store.get(runId)
   if (!run) return NextResponse.json({ error: 'no such run' }, { status: 404 })
   if (!store.locked(run)) return NextResponse.json({ error: 'nothing locked' }, { status: 409 })
-  run.unlockedCount++
-  const opened = store.visible(run).at(-1)!
-  return NextResponse.json({ divergence: opened, locked: store.locked(run) })
+  const n = await store.incrUnlocked(runId)
+  const opened = run.divergences[GUARDS.freeBranches + n - 1]
+  return NextResponse.json({ divergence: opened, locked: Math.max(0, run.divergences.length - GUARDS.freeBranches - n) })
 }
 
 export const POST = withX402(

@@ -110,6 +110,25 @@ SIMPANG_FREE_BRANCHES=2 npx next dev -p 3101 &
 BASE=http://localhost:3101 npm run test:api     # tanpa browser: validasi, scan, steer, x402, diff, kalibrasi
 ```
 
+## Deploy (Vercel)
+
+Repo: https://github.com/PugarHuda/simpang. State run (pohon, antrian steering,
+aksi, commit, file yang berubah) disimpan di **Upstash Redis** kalau
+`UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` (atau `KV_REST_API_*` dari
+Vercel Marketplace) tersedia; tanpa itu store in-memory, cukup untuk satu proses
+tapi **tidak** untuk serverless, karena `/api/run` (SSE panjang) dan
+`/api/steer` bisa mendarat di instance berbeda. Working copy agent hidup di
+tmpdir instance; file yang berubah ikut ke Redis supaya fork di instance lain
+bisa melanjutkan. Diff dihitung dengan `jsdiff`, bukan `git`, karena runtime
+serverless tidak punya git.
+
+```bash
+vercel link
+vercel integration add upstash/upstash-kv --metadata primaryRegion=sin1   # atau isi env dari akun Upstash
+vercel env add VENICE_API_KEY production
+vercel deploy --prod
+```
+
 ## Peta file
 
 | File | Isi |
