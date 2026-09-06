@@ -95,7 +95,10 @@ function redisBackend(url: string, token: string): Backend {
       return !v ? {} : typeof v === 'string' ? JSON.parse(v) : v
     },
     async latestActive(exclude) {
-      const ids = await r.zrange<string[]>('runs:active', 0, 4, { rev: true })
+      // Run yang servernya mati di tengah jalan tidak pernah setDone: anggap basi setelah 15 menit.
+      const cutoff = Date.now() - 15 * 60_000
+      await r.zremrangebyscore('runs:active', 0, cutoff)
+      const ids = await r.zrange<string[]>('runs:active', cutoff, '+inf', { byScore: true, rev: true, offset: 0, count: 5 })
       return ids.find((x) => x !== exclude)
     },
     async bumpPrior(c) { return r.hincrby('prior', c, 1) },

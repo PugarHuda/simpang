@@ -93,18 +93,31 @@ export function qualityGate(set: DivergenceSet): Divergence[] {
 
 export async function scan(prompt: string, repoContext: string, standing: string[]):
   Promise<{ divergences: Divergence[]; etaSeconds: number }> {
-  try {
+  const started = Date.now()
+  const system = SCAN_PROMPT + (standing.length
+    ? `\n\nThis user has consistently rejected the following. Treat as settled, do not offer as a decision:\n- ${standing.join('\n- ')}`
+    : '')
+  const once = async (extra = '') => {
     const { object } = await generateObject({
       model: MODELS.scan,
       schema: DivergenceSet,
       maxOutputTokens: GUARDS.maxOutputTokens,
-      abortSignal: AbortSignal.timeout(GUARDS.scanBudgetMs),
-      system: SCAN_PROMPT + (standing.length
-        ? `\n\nThis user has consistently rejected the following. Treat as settled, do not offer as a decision:\n- ${standing.join('\n- ')}`
-        : ''),
+      abortSignal: AbortSignal.timeout(Math.max(5000, GUARDS.scanBudgetMs - (Date.now() - started))),
+      system: system + extra,
       prompt: `USER PROMPT:\n${prompt}\n\nREPO CONTEXT:\n${repoContext}`,
     })
-    return { divergences: qualityGate(object), etaSeconds: Math.round(object.etaSeconds) }
+    return { raw: object.divergences.length, divergences: qualityGate(object), etaSeconds: Math.round(object.etaSeconds) }
+  }
+  try {
+    let r = await once()
+    // Model menghasilkan divergensi tapi semua gagal gate (confidence tak berjumlah 1, pemimpin
+    // >= 0.85, label kembar): satu percobaan ulang dengan alasannya, selama budget masih ada.
+    if (!r.divergences.length && r.raw > 0 && Date.now() - started < GUARDS.scanBudgetMs - 8000) {
+      console.warn(`scan: ${r.raw} raw -> 0 after gate, retrying once`)
+      r = await once('\n\nYour previous attempt was rejected: confidences must sum to 1.0, the leading branch must be ' +
+        'below 0.85, and the two labels must differ. Produce valid divergences.')
+    }
+    return { divergences: r.divergences, etaSeconds: r.etaSeconds }
   } catch (err) {
     // Scan gagal atau telat -> user cuma lihat loading biasa. Regresi nol.
     console.warn('scan dropped:', String(err).slice(0, 200))

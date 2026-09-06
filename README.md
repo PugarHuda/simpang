@@ -98,7 +98,7 @@ Semua tes melawan model dan facilitator sungguhan (~$0.03 per run dengan
 npm test          # Playwright: menyalakan server sendiri di :3101 (matikan dev server lain dulu)
 ```
 
-Empat skenario e2e (`tests/e2e.spec.ts`):
+Lima skenario e2e (`tests/e2e.spec.ts`):
 
 1. **Kill mengubah eksekusi.** Tekan `1` → toast berisi constraint dari scan
    dalam < 1 detik → main run commit ke cabang lawan → kalibrasi 100% → diff
@@ -108,10 +108,18 @@ Empat skenario e2e (`tests/e2e.spec.ts`):
    `late` → `f` → agent merevisi di working copy yang sama, diff diperbarui.
 3. **Pohon multiplayer.** Dua browser; `tab` di satu mengambil pohon yang lain;
    pangkasannya masuk ke antrian steering run mereka.
-4. **x402 dengan wallet asli.** `window.ethereum` diisi wallet viem (kunci baru,
+4. **HP, prompt riset.** Viewport 390px: klik contoh "analisa koin bitcoin",
+   klik tombol `kill` di baris cabang, panel directive menunjukkan `queued` lalu
+   `✓ applied`, activity menunjukkan `fetching market data`, jawaban dirender
+   sebagai markdown bertabel dengan angka harga sungguhan, alasan keputusan
+   agent tampil di bawah divergensi.
+5. **x402 dengan wallet asli.** `window.ethereum` diisi wallet viem (kunci baru,
    saldo 0). `enter` → 402 → tanda tangan EIP-3009 sah → facilitator x402.org
    menolak dengan `invalid_exact_evm_insufficient_balance`, bukan karena tanda
    tangan. Isi kunci itu dengan USDC Base Sepolia dan hasilnya `paid`.
+
+Tes API dengan `X402_TEST_BUYER_KEY` berisi USDC testnet membuktikan pembayaran
+settle on-chain: `PAYMENT-RESPONSE` berisi hash transaksi Base Sepolia.
 
 ```bash
 SIMPANG_FREE_BRANCHES=2 npx next dev -p 3101 &
@@ -205,7 +213,14 @@ potongan kode). Dibuang kalau kamu membunuhnya; disembunyikan kalau main run
 justru memilihnya.
 
 **User pasif tetap untung.** `esc` menciutkan panel; prefetch tetap jalan;
-activity line menunjukkan file yang sedang dibaca/ditulis; diff tetap didapat.
+activity log menunjukkan file yang dibaca/ditulis dan data yang diambil; diff
+tetap didapat. Jawaban agent dirender sebagai markdown (tabel, heading, kode).
+
+**Tanpa keyboard pun bisa.** Klik baris cabang = kill, tombol `kill`/`pin`
+selalu terlihat di layar kecil, gerbang x402 bisa diklik. Panel *steering →
+agent* menunjukkan directive yang antre dan yang sudah diterapkan, dan di bawah
+divergensi yang resolved tampil alasan agent memilih cabang itu (dari tool
+`decide`).
 
 ## Roadmap
 

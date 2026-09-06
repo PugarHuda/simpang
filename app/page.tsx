@@ -1,5 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Tree, KEY_LABELS, type Act } from '@/components/tree'
 import type { Divergence } from '@/lib/divergence'
 import { hasWallet, paidFetch } from '@/lib/x402-client'
@@ -8,15 +10,26 @@ import { hasWallet, paidFetch } from '@/lib/x402-client'
 const KEY_ROW = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6',
   'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal']
 
+const EXAMPLES = [
+  'refactor the auth system to use sessions',
+  'analisa koin bitcoin seminggu terakhir',
+  'add rate limiting to the login endpoint',
+]
+
 type Other = {
   runId: string; prompt: string; divergences: Divergence[]
   committed: Record<string, number>; actions: Record<string, Act>; done?: boolean
 }
 type Ready = { divergenceId: string; branchIdx: number; label: string; text: string }
 type Result = { calibration: number | null; prefetch: Ready[]; elapsedMs: number }
+type Directive = { text: string; at: number; applied: boolean }
+
+const Md = ({ children }: { children: string }) => (
+  <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown></div>
+)
 
 export default function Page() {
-  const [prompt, setPrompt] = useState('refactor the auth system to use sessions')
+  const [prompt, setPrompt] = useState(EXAMPLES[0])
   const [status, setStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [divs, setDivs] = useState<Divergence[]>([])
   const [locked, setLocked] = useState({ count: 0, price: '$0.01' })
@@ -24,8 +37,10 @@ export default function Page() {
   const [scanNote, setScanNote] = useState('')
   const [actions, setActions] = useState<Record<string, Act>>({})
   const [committed, setCommitted] = useState<Record<string, number>>({})
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [directives, setDirectives] = useState<Directive[]>([])
   const [out, setOut] = useState('')
-  const [activity, setActivity] = useState('')
+  const [log, setLog] = useState<string[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const [diff, setDiff] = useState('')
   const [showDiff, setShowDiff] = useState(false)
@@ -61,6 +76,7 @@ export default function Page() {
     setToast(msg)
     setTimeout(() => setToast((cur) => (cur === msg ? '' : cur)), ms)
   }, [])
+  const note = useCallback((line: string) => setLog((l) => [...l.slice(-3), line]), [])
 
   const steer = useCallback(async (divergenceId: string, branchIdx: number, verb: 'kill' | 'pin') => {
     // Saat membantu orang lain, pangkasan masuk ke run MEREKA. API-nya sama.
@@ -75,6 +91,7 @@ export default function Page() {
     // Pangkasan terlambat: main run sudah commit ke cabang lawan. Simpan target
     // koreksinya (cabang yang seharusnya) supaya [f] bisa fork tanpa mengulang.
     if (r.status === 'late' && !helping) setLate({ divergenceId, branchIdx: verb === 'pin' ? branchIdx : 1 - branchIdx })
+    if (r.status === 'queued' && !helping) setDirectives((d) => [...d, { text: r.injected, at: Date.now(), applied: false }])
     flash(r.status === 'late' ? `⚠ late · [f] fork koreksi`
       : r.status === 'finished' ? `run sudah selesai dan sejalan · dicatat sebagai preferensi`
       : `${verb === 'kill' ? 'killed' : 'pinned'} · injected: "${r.injected}"`)
@@ -90,7 +107,7 @@ export default function Page() {
       body: JSON.stringify({ runId: runIdRef.current, ...target }),
     })
     if (!res.ok) return flash(`✗ fork: ${(await res.json()).error}`)
-    setOut((o) => o + '\n')
+    setOut((o) => o + '\n\n')
     const reader = res.body!.getReader()
     const dec = new TextDecoder()
     for (;;) {
@@ -154,7 +171,8 @@ export default function Page() {
   //         f fork · enter bayar · tab bantu orang lain · d diff
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
       if (e.key === 'Escape') return setCollapsed((c) => !c)
       if (e.key === 'Tab') { e.preventDefault(); return helpOther() }
       if (e.key === 'f') return fork()
@@ -181,9 +199,10 @@ export default function Page() {
   }, [steer, fork, unlock, helpOther, locked.count])
 
   async function go() {
-    setStatus('running'); setOut(''); setDivs([]); setActions({}); setCommitted({})
+    if (status === 'running' || prompt.trim().length < 3) return
+    setStatus('running'); setOut(''); setDivs([]); setActions({}); setCommitted({}); setNotes({}); setDirectives([])
     setResult(null); setCollapsed(false); setAsk(null); setLate(null); setLocked({ count: 0, price: '$0.01' })
-    setErrors([]); setDiff(''); setShowDiff(false); setPrefetched([]); setActivity(''); setEta(0); setScanNote('')
+    setErrors([]); setDiff(''); setShowDiff(false); setPrefetched([]); setLog([]); setEta(0); setScanNote('')
     setOpenReady(null)
     startRef.current = Date.now()
     ;(document.activeElement as HTMLElement | null)?.blur()   // supaya hotkey tidak mengetik ke input
@@ -212,7 +231,7 @@ export default function Page() {
           else if (!e.divergences.length) setScanNote('tidak ada keputusan nyata di prompt ini · panel diam')
         }
         if (e.type === 'text') setOut((o) => o + e.delta)
-        if (e.type === 'tool') setActivity(
+        if (e.type === 'tool') note(
           e.name === 'read' ? `reading ${e.path}`
           : e.name === 'write' ? `writing ${e.path} (${e.lines} lines)`
           : e.name === 'search' ? `searching the web: ${e.path}`
@@ -220,12 +239,18 @@ export default function Page() {
           : e.name === 'paid' ? `buying via x402: ${e.path}`
           : `${e.name} ${e.path}`)
         if (e.type === 'paid') flash(`x402 paid · ${e.url} · tx ${(e.receipt?.transaction ?? '').slice(0, 10)}…`, 5000)
-        if (e.type === 'step') setActivity((a) => a || `step ${e.n}`)
-        if (e.type === 'commit') setCommitted((c) => ({ ...c, [e.divergenceId]: e.branchIdx }))
-        if (e.type === 'applied') flash(`applied: ${e.constraints.join(' / ')}`)
+        if (e.type === 'step') note(`step ${e.n}`)
+        if (e.type === 'commit') {
+          setCommitted((c) => ({ ...c, [e.divergenceId]: e.branchIdx }))
+          if (e.why) setNotes((n) => ({ ...n, [e.divergenceId]: e.why }))
+        }
+        if (e.type === 'applied') {
+          setDirectives((d) => d.map((x) => (e.constraints.includes(x.text) ? { ...x, applied: true } : x)))
+          flash(`applied: ${e.constraints.join(' / ')}`)
+        }
         if (e.type === 'prefetch' && e.status === 'done') setPrefetched((p) => [...p, e.label])
         if (e.type === 'error') setErrors((x) => [...x, e.message])
-        if (e.type === 'patch') { setDiff(e.diff ?? ''); setActivity(e.diff ? 'diff ready · [d] show' : '') }
+        if (e.type === 'patch') { setDiff(e.diff ?? ''); if (e.diff) note('diff ready · [d] show') }
         if (e.type === 'done') { setResult({ calibration: e.calibration, prefetch: e.prefetch, elapsedMs: e.elapsedMs }); setStatus('done') }
       }
     }
@@ -234,26 +259,34 @@ export default function Page() {
   const secs = (t / 1000).toFixed(1)
   const lastKey = KEY_LABELS[Math.max(0, divs.length * 2 - 1)]
   const diffStat = diff ? `${(diff.match(/^\+[^+]/gm) ?? []).length}+ ${(diff.match(/^-[^-]/gm) ?? []).length}- · ${(diff.match(/^diff --git/gm) ?? []).length} files` : ''
+  const progress = eta > 0 ? Math.min(1, t / 1000 / eta) : 0
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-neutral-200 font-mono p-6 md:p-10">
+    <main className="min-h-screen bg-neutral-950 text-neutral-200 font-mono p-4 md:p-10">
       <div className="mx-auto max-w-4xl space-y-4">
         <header className="flex items-baseline gap-3 text-[13px]">
-          <span className="text-neutral-100 tracking-widest">SIMPANG</span>
-          <span className="text-neutral-600">kamu yang memilih arah di tiap simpang</span>
+          <a href="https://github.com/PugarHuda/simpang" className="text-neutral-100 tracking-widest hover:underline">SIMPANG</a>
+          <span className="text-neutral-600 hidden sm:inline">kamu yang memilih arah di tiap simpang</span>
           <span className="ml-auto tabular-nums text-neutral-500" data-testid="clock">
             {status === 'idle' ? '--:--' : `${secs}s`}
             {eta > 0 && status === 'running' && <span className="text-neutral-700"> / ~{eta}s est</span>}
           </span>
         </header>
+        {status === 'running' && eta > 0 && (
+          <div className="h-px bg-neutral-900 -mt-3" aria-hidden>
+            <div className="h-px bg-neutral-500 transition-all duration-300" style={{ width: `${progress * 100}%` }} />
+          </div>
+        )}
 
         <div className="flex gap-2">
           <input
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && status !== 'running' && go()}
+            onKeyDown={(e) => e.key === 'Enter' && go()}
+            placeholder="tugas untuk agent…"
+            aria-label="prompt"
             data-testid="prompt"
-            className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-3 py-2 text-[13px] outline-none focus:border-neutral-600"
+            className="flex-1 min-w-0 bg-neutral-900 border border-neutral-800 rounded px-3 py-2 text-[13px] outline-none focus:border-neutral-600"
           />
           <button
             onClick={go}
@@ -264,6 +297,24 @@ export default function Page() {
             run
           </button>
         </div>
+
+        {status === 'idle' && (
+          <div className="text-[12px] text-neutral-500 space-y-2" data-testid="intro">
+            <p>
+              Ketik tugas, tekan Enter. Selagi agent bekerja, titik-titik keputusannya muncul sebagai pohon.
+              Bunuh cabang yang salah sebelum agent memakan satu turn penuh; cabang yang selamat dihitung
+              lebih dulu selama kamu menunggu.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {EXAMPLES.map((ex) => (
+                <button key={ex} onClick={() => setPrompt(ex)} data-testid="example"
+                  className="px-2 py-0.5 border border-neutral-800 rounded text-neutral-400 hover:border-neutral-600 hover:text-neutral-200">
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {status === 'running' && !divs.length && !scanNote && (
           <div className="text-neutral-600 text-[13px] animate-pulse" data-testid="scanning">scanning…</div>
@@ -279,7 +330,7 @@ export default function Page() {
             </div>
             <Tree
               divergences={other.divergences} actions={other.actions} committed={other.committed}
-              locked={{ count: 0, price: '' }} ask={null} onAsk={() => {}}
+              locked={{ count: 0, price: '' }} ask={null} onAsk={() => {}} onSteer={steer}
             />
           </div>
         )}
@@ -287,14 +338,16 @@ export default function Page() {
         {divs.length > 0 && !collapsed && !other && (
           <>
             <Tree
-              divergences={divs} actions={actions} committed={committed}
+              divergences={divs} actions={actions} committed={committed} notes={notes}
               locked={locked} ask={ask} wallet={wallet}
               onAsk={(id, idx) => { steer(id, idx, 'pin'); setAsk(null) }}
+              onSteer={steer}
+              onPay={unlock}
             />
             <div className="text-[11px] text-neutral-600" data-testid="legend">
               {ask
                 ? '[y] pilih kiri · [n] pilih kanan · [space] tutup'
-                : `[1-${lastKey}] kill · [⇧1-${lastKey}] pin · [space] ask · [esc] ignore · [tab] help someone`}
+                : `[1-${lastKey}] kill · [⇧1-${lastKey}] pin · klik baris = kill · [space] ask · [esc] ignore · [tab] help someone`}
               {late && <span className="text-amber-300"> · [f] fork koreksi</span>}
               {diff && <span> · [d] diff</span>}
             </div>
@@ -306,10 +359,25 @@ export default function Page() {
           </div>
         )}
 
-        {status === 'running' && activity && (
-          <div className="text-[12px] text-neutral-500" data-testid="activity">
-            <span className="animate-pulse">●</span> {activity}
-            {prefetched.length > 0 && <span className="text-emerald-700"> · {prefetched.length} follow-up siap</span>}
+        {directives.length > 0 && (
+          <div className="border border-neutral-900 rounded px-3 py-2 text-[12px] space-y-0.5" data-testid="directives">
+            <div className="text-neutral-500">steering → agent</div>
+            {directives.map((d, i) => (
+              <div key={i} className={d.applied ? 'text-emerald-400' : 'text-amber-300'}>
+                {d.applied ? '✓ applied' : '… queued'} · {d.text}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {status === 'running' && log.length > 0 && (
+          <div className="text-[12px] text-neutral-500 space-y-0.5" data-testid="activity">
+            {log.map((l, i) => (
+              <div key={i} className={i === log.length - 1 ? 'text-neutral-400' : 'text-neutral-700'}>
+                {i === log.length - 1 ? <span className="animate-pulse">●</span> : '○'} {l}
+              </div>
+            ))}
+            {prefetched.length > 0 && <div className="text-emerald-700">✓ {prefetched.length} follow-up siap</div>}
           </div>
         )}
 
@@ -320,10 +388,10 @@ export default function Page() {
         )}
 
         {out && (
-          <pre className="whitespace-pre-wrap text-[13px] text-neutral-400 border border-neutral-900 rounded p-3" data-testid="output">
-            {out}
+          <div className="text-[13px] text-neutral-400 border border-neutral-900 rounded p-3" data-testid="output">
+            <Md>{out}</Md>
             {status === 'running' && <span className="animate-pulse">▋</span>}
-          </pre>
+          </div>
         )}
 
         {diff && (
@@ -352,7 +420,7 @@ export default function Page() {
                   {openReady === i ? '▾' : '▸'} {p.label}
                 </button>
                 {openReady === i && (
-                  <pre className="whitespace-pre-wrap text-[12px] text-neutral-500 border border-neutral-900 rounded p-2 mt-1">{p.text}</pre>
+                  <div className="text-[12px] text-neutral-500 border border-neutral-900 rounded p-2 mt-1"><Md>{p.text}</Md></div>
                 )}
               </div>
             ))}
@@ -365,7 +433,7 @@ export default function Page() {
       </div>
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-[12px] text-neutral-300" data-testid="toast">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-[92vw] bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-[12px] text-neutral-300" data-testid="toast" role="status">
           {toast}
         </div>
       )}

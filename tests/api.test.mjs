@@ -3,7 +3,7 @@
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts'
 import { x402Client } from '@x402/core/client'
 import { ExactEvmScheme } from '@x402/evm/exact/client'
-import { wrapFetchWithPayment } from '@x402/fetch'
+import { wrapFetchWithPayment, x402HTTPClient } from '@x402/fetch'
 
 const BASE = process.env.BASE ?? 'http://localhost:3101'
 const a = (c, m) => { if (!c) { console.error('FAIL:', m); process.exit(1) } else console.log('ok  ', m) }
@@ -57,15 +57,24 @@ if (scan.locked > 0) {
 
   // 5. Bayar dengan wallet sungguhan (kunci baru, saldo 0) lewat @x402/fetch: tanda tangan EIP-3009
   //    valid secara kriptografi; facilitator x402.org memutuskan berdasarkan saldo.
-  const account = privateKeyToAccount(generatePrivateKey())
+  //    X402_TEST_BUYER_KEY berisi USDC testnet -> pembayaran benar-benar settle on-chain (tx hash).
+  const funded = process.env.X402_TEST_BUYER_KEY
+  const account = privateKeyToAccount(funded ?? generatePrivateKey())
   const client = new x402Client().register('eip155:*', new ExactEvmScheme(account))
   const pay = wrapFetchWithPayment(fetch, client)
+  const http = new x402HTTPClient(client)
   const paid = await pay(`${BASE}/api/unlock?runId=${runId}`, { method: 'POST' })
   const body = await paid.json().catch(() => ({}))
   const reason = paid.status === 402 ? JSON.parse(Buffer.from(paid.headers.get('payment-required') ?? '', 'base64').toString()).error : 'paid'
   console.log('    facilitator ->', paid.status, reason)
-  a(paid.status === 200 || reason === 'invalid_exact_evm_insufficient_balance',
-    'unlock: tanda tangan EIP-3009 diterima facilitator; ditolak hanya karena saldo 0 (kunci berisi USDC testnet -> lolos)')
+  if (funded) {
+    a(paid.status === 200, 'unlock: wallet berisi USDC -> 200, pembayaran settle')
+    const settle = http.getPaymentSettleResponse((n) => paid.headers.get(n))
+    a(settle?.success && /^0x[0-9a-f]{64}$/i.test(settle.transaction ?? ''), `unlock: PAYMENT-RESPONSE berisi tx on-chain ${settle?.transaction} (${settle?.network})`)
+  } else {
+    a(paid.status === 200 || reason === 'invalid_exact_evm_insufficient_balance',
+      'unlock: tanda tangan EIP-3009 diterima facilitator; ditolak hanya karena saldo 0 (kunci berisi USDC testnet -> lolos)')
+  }
   if (paid.status === 200) a(body.divergence?.id && typeof body.locked === 'number', `unlock: divergensi "${body.divergence.axis}" terbuka, sisa ${body.locked}`)
 } else {
   console.log('skip: scan ini tidak menghasilkan divergensi terkunci (perlu >= 3 divergensi dengan SIMPANG_FREE_BRANCHES=2)')

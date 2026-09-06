@@ -1,5 +1,7 @@
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
+import net from 'node:net'
+import dns from 'node:dns/promises'
 import { privateKeyToAccount } from 'viem/accounts'
 import { x402Client } from '@x402/core/client'
 import { ExactEvmScheme } from '@x402/evm/exact/client'
@@ -13,6 +15,32 @@ import { wrapFetchWithPayment, x402HTTPClient } from '@x402/fetch'
  *    (X402_BUYER_PRIVATE_KEY, USDC Base Sepolia) — sisi PEMBELI x402 */
 
 type Emit = (e: Record<string, unknown>) => void
+
+/** URL dari model = input tidak tepercaya. Hanya https ke host publik: loopback, jaringan
+ *  privat, link-local (metadata cloud 169.254.x), dan nama internal ditolak SETELAH resolusi
+ *  DNS, supaya "evil.example -> 127.0.0.1" juga tertangkap. */
+async function assertPublicUrl(raw: string) {
+  let u: URL
+  try { u = new URL(raw) } catch { throw new Error('invalid url') }
+  if (u.protocol !== 'https:') throw new Error('only https urls are allowed')
+  if (u.username || u.password) throw new Error('credentials in url are not allowed')
+  const host = u.hostname.toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal'))
+    throw new Error('internal host is not allowed')
+  const addrs = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true })).map((a) => a.address)
+  for (const a of addrs) if (isPrivateIp(a)) throw new Error(`host resolves to a private address (${a})`)
+}
+function isPrivateIp(ip: string): boolean {
+  if (net.isIPv6(ip)) {
+    const v = ip.toLowerCase()
+    if (v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80')) return true
+    const m4 = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+    return m4 ? isPrivateIp(m4[1]) : false
+  }
+  const [a, b] = ip.split('.').map(Number)
+  return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
+}
 
 export function researchTools(emit: Emit) {
   const tools: ToolSet = {}
@@ -77,8 +105,9 @@ export function researchTools(emit: Emit) {
         `automatically (USDC on Base Sepolia, address ${account.address}). Returns the body and the payment receipt.`,
       inputSchema: z.object({ url: z.string() }),
       execute: async ({ url }) => {
+        try { await assertPublicUrl(url) } catch (e) { return `refused: ${(e as Error).message}` }
         emit({ type: 'tool', name: 'paid', path: url })
-        const res = await pay(url, { headers: { accept: 'application/json, text/plain;q=0.9, */*;q=0.5' } })
+        const res = await pay(url, { headers: { accept: 'application/json, text/plain;q=0.9, */*;q=0.5' }, redirect: 'manual' })
         let receipt: unknown = null
         try { receipt = http.getPaymentSettleResponse((n) => res.headers.get(n)) } catch { /* tidak berbayar */ }
         const body = (await res.text()).slice(0, 8000)

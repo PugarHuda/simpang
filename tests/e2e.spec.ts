@@ -99,6 +99,41 @@ test('pohon multiplayer: [tab] mengambil run orang lain dan pangkasanmu masuk ke
   await a.close(); await b.close()
 })
 
+test.describe('HP: tanpa keyboard, prompt riset', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+  test('contoh prompt -> tool data hidup -> klik tombol kill -> directive terlihat -> jawaban markdown bertabel', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByTestId('intro')).toBeVisible()
+    await page.getByTestId('example').filter({ hasText: 'bitcoin' }).click()
+    await expect(page.getByTestId('prompt')).toHaveValue(/bitcoin/)
+    await page.getByTestId('run').click()
+    await expect(page.getByTestId('tree')).toBeVisible({ timeout: 45_000 })
+    await expect(page.getByTestId('intro')).toHaveCount(0)
+
+    // Tombol kill/pin selalu terlihat di layar kecil; klik = steer tanpa baris angka.
+    const ids = await page.locator('[data-testid^="div-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')!.slice(4)))
+    const killBtn = page.getByTestId(`kill-${ids[0]}-0`)
+    await expect(killBtn).toBeVisible()
+    await killBtn.click()
+    await expect(page.getByTestId('toast')).toContainText(/killed · injected|late/)
+    // Directive yang masuk terlihat sebagai panel, bukan cuma toast sekilas.
+    await expect(page.getByTestId('directives')).toContainText(/queued|applied/)
+    await expect(page.getByTestId(`status-${ids[0]}`)).toContainText(/killed · waiting|resolved/)
+
+    // Agent memakai data hidup dan menulis deliverable, bukan "tidak punya akses".
+    await expect(page.getByTestId('activity')).toContainText(/market data|searching the web/, { timeout: 120_000 })
+    await expect(page.getByTestId('result')).toBeVisible({ timeout: 240_000 })
+    const output = page.getByTestId('output')
+    await expect(output).not.toContainText(/tidak (punya|memiliki) akses/i)
+    await expect(output.locator('table, h1, h2, h3').first()).toBeVisible()   // markdown dirender, bukan teks mentah
+    await expect(output).toContainText(/\$?\d{2}[.,]\d{3}/)                    // angka harga sungguhan
+    await expect(page.getByTestId('directives')).toContainText('✓ applied')
+    // Alasan keputusan agent terlihat di bawah divergensi yang sudah resolved.
+    await expect(page.locator('[data-testid^="why-"]').first()).toBeVisible()
+  })
+})
+
 test('x402 lewat wallet sungguhan: [enter] -> 402 -> tanda tangan EIP-3009 valid -> facilitator memutuskan', async ({ page }) => {
   // Wallet EVM asli (kunci baru, saldo 0) disuntik sebagai window.ethereum. Tanda tangannya
   // sah secara kriptografi; facilitator x402.org menolak karena saldo, BUKAN karena tanda tangan.
