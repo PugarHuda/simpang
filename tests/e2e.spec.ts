@@ -57,8 +57,10 @@ test('pangkasan terlambat tidak menguap: late -> [f] fork merevisi di working co
   await startRun(page)
   // Tunggu commit pertama (tool decide di tengah run, atau classifier di akhir),
   // lalu bunuh cabang yang SUDAH dimenangkan -> late, apa pun status run-nya.
-  const won = page.locator('[data-state="won"]').first()
-  await expect(won).toBeVisible({ timeout: 240_000 })
+  const firstWon = page.locator('[data-state="won"]').first()
+  await expect(firstWon).toBeVisible({ timeout: 240_000 })
+  // Kunci elemennya lewat testid: setelah fork, cabang lawan yang jadi "won".
+  const won = page.getByTestId((await firstWon.getAttribute('data-testid'))!)
   const key = (await won.locator('span').first().textContent())!.trim()
   const code = /\d/.test(key) ? `Digit${key}` : key === '-' ? 'Minus' : 'Equal'
   const diffBefore = await page.getByTestId('diff').textContent().catch(() => '')
