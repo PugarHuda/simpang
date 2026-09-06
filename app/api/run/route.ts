@@ -227,7 +227,7 @@ async function classifyCommits(run: Run, emit: Emit) {
   if (!open.length || (!run.diff && !run.output)) return
   try {
     const { object } = await generateObject({
-      model: MODELS.scan,
+      model: MODELS.prefetch,   // non-reasoning: 400 token output harus jadi JSON, bukan pikiran
       maxOutputTokens: 400,
       abortSignal: AbortSignal.timeout(12000),
       schema: z.object({ decisions: z.array(z.object({ id: z.string(), branch: z.number(), confident: z.boolean() })) }),

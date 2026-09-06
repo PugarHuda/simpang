@@ -32,12 +32,14 @@ export const HAS_MODEL = Boolean(venice || openrouter || process.env.AI_GATEWAY_
 // Nama model beda per provider; env SIMPANG_MAIN_MODEL / SIMPANG_SCAN_MODEL menimpa default.
 // Scan: diukur 2026-09-06 di Venice. gpt-56-luna 18s/5 divergensi bagus; gpt-4o-mini 4s tapi dangkal;
 // deepseek/gemma berpikir dulu 10-30s; claude-sonnet-5 22s dan mahal.
+// Prefetch & classifier butuh model TANPA reasoning: luna menghabiskan 700 token output
+// untuk berpikir dan mengembalikan teks kosong (finishReason: length).
 const ids = venice
-  ? { scan: 'openai-gpt-56-luna', main: 'claude-sonnet-5' }
-  : { scan: 'anthropic/claude-haiku-4.5', main: 'anthropic/claude-sonnet-5' }
+  ? { scan: 'openai-gpt-56-luna', main: 'claude-sonnet-5', prefetch: 'openai-gpt-4o-mini-2024-07-18' }
+  : { scan: 'anthropic/claude-haiku-4.5', main: 'anthropic/claude-sonnet-5', prefetch: 'anthropic/claude-haiku-4.5' }
 const m = (id: string) => (venice ? venice.chatModel(id) : openrouter ? openrouter(id) : id)
 export const MODELS = {
   scan: m(process.env.SIMPANG_SCAN_MODEL ?? ids.scan),
   main: m(process.env.SIMPANG_MAIN_MODEL ?? ids.main),
-  prefetch: m(process.env.SIMPANG_PREFETCH_MODEL ?? process.env.SIMPANG_SCAN_MODEL ?? ids.scan),
+  prefetch: m(process.env.SIMPANG_PREFETCH_MODEL ?? ids.prefetch),
 }
