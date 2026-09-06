@@ -54,3 +54,5 @@ playwright-report/
 
 # the template is safe to publish; the README points at it
 !.env.example
+# capture artefacts: 56 MB of webm/mp4 and the generated narration, all reproducible
+video/out/

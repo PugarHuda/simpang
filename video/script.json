@@ -1,0 +1,148 @@
+{
+  "voice": "en-US-BrianMultilingualNeural",
+  "comment": "edge-tts (free, no key). text = subtitle. speak = what the TTS reads when it differs (abbreviations, symbols). anchor = a mark emitted by capture.mjs; the recording between two anchors is time-remapped to fit its narration.",
+  "segments": [
+    {
+      "id": "s01",
+      "anchor": "intro",
+      "text": "Every product with a loading screen puts something beside it. A tip, a skeleton, a little game. None of it changes the thing you are waiting for."
+    },
+    {
+      "id": "s02",
+      "anchor": "intro-2",
+      "text": "CPUs solved this decades ago. When a processor stalls waiting on memory, it doesn't show you a spinner — it does branch prediction, and executes the work that is probably next.",
+      "speak": "C P Us solved this decades ago. When a processor stalls waiting on memory, it doesn't show you a spinner. It does branch prediction, and executes the work that is probably next."
+    },
+    {
+      "id": "s03",
+      "anchor": "intro-3",
+      "text": "AI agents have exactly the same wait state, and no branch predictor. So SIMPANG's inversion is this: you are the branch predictor.",
+      "speak": "A I agents have exactly the same wait state, and no branch predictor. So SIMPANG's inversion is this. You are the branch predictor."
+    },
+    {
+      "id": "s04",
+      "anchor": "typed",
+      "text": "Here is a real task, against a real repository on disk. Nothing here is mocked."
+    },
+    {
+      "id": "s05",
+      "anchor": "scanning",
+      "text": "The agent starts immediately. At the same time, a second, cheaper model scans the task for decision points."
+    },
+    {
+      "id": "s06",
+      "anchor": "tree",
+      "text": "There they are. Each row is a branch the agent could reasonably take: what it is, how many files it touches, what it costs, and how confident the scan is."
+    },
+    {
+      "id": "s07",
+      "anchor": "tree-guard",
+      "text": "Two things it refuses to do. If the leading branch is over eighty-five percent confident, that is an assumption, not a decision — it gets dropped. And if the whole wait is under fifteen seconds, this panel never appears at all."
+    },
+    {
+      "id": "s08",
+      "anchor": "kill",
+      "text": "Now I kill a branch."
+    },
+    {
+      "id": "s09",
+      "anchor": "killed",
+      "text": "Watch the toast. That is the constraint being injected — and no model call happened. The instruction text was written during the scan, which is why this lands in about a hundred milliseconds."
+    },
+    {
+      "id": "s10",
+      "anchor": "queued",
+      "text": "It is queued. Now it waits for the agent's next tool call."
+    },
+    {
+      "id": "s11",
+      "anchor": "applied",
+      "text": "There. It was drained at the tool-call boundary and it overrode the agent's instructions, mid-task. Not on the next turn — on this one."
+    },
+    {
+      "id": "s12",
+      "anchor": "working",
+      "text": "Meanwhile the agent is visibly working, and a second model is really computing the branch the agent probably will not take. Not a preview — actual work, ready the moment the answer lands."
+    },
+    {
+      "id": "s13",
+      "anchor": "result",
+      "text": "This is the one claim that cannot be faked. I killed branch zero. The finished code took branch one. Calibration, one hundred percent."
+    },
+    {
+      "id": "s14",
+      "anchor": "result-2",
+      "text": "That is asserted in an end-to-end test against real models. If the agent ever ignored a prune, the test fails."
+    },
+    {
+      "id": "s15",
+      "anchor": "diff",
+      "text": "And here is the actual diff. Real files, a real unified diff, computed with jsdiff — because the serverless runtime does not have git."
+    },
+    {
+      "id": "s16",
+      "anchor": "prefs",
+      "text": "The constraint I killed is remembered. Kill the same thing three times and the scan stops offering it — visibly, with a forget button, so the learning is not a black box."
+    },
+    {
+      "id": "s17",
+      "anchor": "prefs-2",
+      "text": "And nothing you do evaporates. If the agent already committed to that branch you get 'late', and one key forks the correction in the same working copy. If the run already finished, the constraint still goes into your preferences for next time."
+    },
+    {
+      "id": "s18",
+      "anchor": "multi",
+      "text": "Your wait time does not have to be spent on your own problem. Tab picks up someone else's running tree."
+    },
+    {
+      "id": "s19",
+      "anchor": "helped",
+      "text": "That prune went into their agent's steering queue, and they see who did it. This is real distributed state — the stream and the steer request land on different serverless instances, and Redis carries the queue between them."
+    },
+    {
+      "id": "s20",
+      "anchor": "paywall",
+      "text": "The scan finds up to five decision points. Three are free. The rest cost a cent each, paid with x402.",
+      "speak": "The scan finds up to five decision points. Three are free. The rest cost a cent each, paid with x four oh two."
+    },
+    {
+      "id": "s21",
+      "anchor": "paid",
+      "text": "That is a real EIP-3009 signature from a browser wallet. The facilitator verified it and settled USDC on Base Sepolia.",
+      "speak": "That is a real E I P thirty oh nine signature from a browser wallet. The facilitator verified it, and settled U S D C on Base Sepolia."
+    },
+    {
+      "id": "s22",
+      "anchor": "basescan",
+      "text": "On-chain. Not a mock."
+    },
+    {
+      "id": "s23",
+      "anchor": "health",
+      "text": "But here is the part I actually care about. Most entries that touch x402 put a paywall on their own thing. SIMPANG is on both sides of the market.",
+      "speak": "But here is the part I actually care about. Most entries that touch x four oh two put a paywall on their own thing. SIMPANG is on both sides of the market."
+    },
+    {
+      "id": "s24",
+      "anchor": "health-2",
+      "text": "The agent has a tool that searches the x402 Bazaar catalogue — fifteen thousand paid endpoints — and buys from it with its own wallet. In production it found a CoinCap price endpoint and bought it unprompted.",
+      "speak": "The agent has a tool that searches the x four oh two Bazaar catalogue. Fifteen thousand paid endpoints. And it buys from that catalogue with its own wallet. In production, it found a CoinCap price endpoint, and bought it unprompted."
+    },
+    {
+      "id": "s25",
+      "anchor": "seller",
+      "text": "And SIMPANG sells. The divergence scan itself is a product, two cents, declared to the Bazaar with its input schema. Another agent has already bought it. Both transactions are on-chain."
+    },
+    {
+      "id": "s26",
+      "anchor": "close",
+      "text": "No mock mode. No fake fixtures. No demo payments. Real models, real files, real money moving on-chain."
+    },
+    {
+      "id": "s27",
+      "anchor": "close-2",
+      "text": "Wait time is a second thread. Everything that happens there ends up back in the main one. That is the whole idea."
+    }
+  ],
+  "rate": "-4%"
+}
