@@ -112,12 +112,14 @@ BASE=http://localhost:3101 npm run test:api     # tanpa browser: validasi, scan,
 
 ## Deploy (Vercel)
 
-Repo: https://github.com/PugarHuda/simpang. State run (pohon, antrian steering,
-aksi, commit, file yang berubah) disimpan di **Upstash Redis** kalau
-`UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` (atau `KV_REST_API_*` dari
-Vercel Marketplace) tersedia; tanpa itu store in-memory, cukup untuk satu proses
-tapi **tidak** untuk serverless, karena `/api/run` (SSE panjang) dan
-`/api/steer` bisa mendarat di instance berbeda. Working copy agent hidup di
+Repo: https://github.com/PugarHuda/simpang · Production: https://simpang.vercel.app.
+State run (pohon, antrian steering, aksi, commit, file yang berubah) disimpan di
+**Upstash Redis** (tier gratis, Singapore) lewat `UPSTASH_REDIS_REST_URL` /
+`UPSTASH_REDIS_REST_TOKEN` (atau `KV_REST_API_*` dari Vercel Marketplace); tanpa
+itu store in-memory, cukup untuk satu proses tapi **tidak** untuk serverless.
+Terbukti di produksi: `/api/run` (SSE panjang) dan `/api/steer` mendarat di
+instance berbeda; tanpa Redis steer-nya 404, dengan Redis ia di-drain di batas
+step berikutnya dan agent mengubah keputusannya. Working copy agent hidup di
 tmpdir instance; file yang berubah ikut ke Redis supaya fork di instance lain
 bisa melanjutkan. Diff dihitung dengan `jsdiff`, bukan `git`, karena runtime
 serverless tidak punya git.
@@ -150,9 +152,14 @@ vercel deploy --prod
 
 ## Keputusan desain yang penting
 
-**`constraintIfPinned` / `constraintIfKilled` dibuat di scan yang sama.**
+**`constraintIfPinned` dibuat di scan yang sama; `constraintIfKilled` diturunkan.**
 Menekan `1` tidak memicu panggilan model apa pun — teks constraint-nya sudah
-ada. Itulah cara memenuhi aturan UX "efek terlihat < 1 detik".
+ada. Itulah cara memenuhi aturan UX "efek terlihat < 1 detik". Larangannya
+tidak diminta dari model: model scan terbukti menukar kalimat larangan
+antar-cabang (di produksi, membunuh "database sessions" menyuntik "do not use
+encrypted cookies", dan agent tetap memakai database). Karena dua cabang saling
+eksklusif, kill = `Do NOT choose "<label>"` + instruksi pin cabang lawan,
+dihitung deterministik di `qualityGate`.
 
 **Steering masuk lewat `instructions` per step.** AI SDK 7 menolak pesan
 `system` di tengah `messages`. `prepareStep` menimpa `instructions` dengan
