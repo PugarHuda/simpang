@@ -107,6 +107,13 @@ berikutnya 0.01 USDC lewat **x402 v2 dengan SDK resmi**:
   apakah katalog terjangkau dari instance yang menjawab.
 - `GET /api/health`: status nyata model, store (memory/redis), facilitator
   (`/supported`), Bazaar, wallet agent, dan region.
+- **Terbukti di produksi (2026-09-06).** Health dari Vercel `sin1`: Bazaar
+  terjangkau, 15.595 resource terindeks. Prompt "cari di katalog x402 bazaar
+  endpoint data berbayar ... di eip155:84532, beli satu": agent memanggil
+  `findPaidData`, memilih CoinCap (riwayat harga Bitcoin, 0.01 USDC, Base
+  Sepolia), membelinya lewat `paidFetch`, dan transfer USDC-nya tercatat
+  on-chain (`0xf47eaae8…`). Pembeli luar juga membeli `/api/paid/scan` SIMPANG
+  dari produksi (`0x740acac7…`).
 
 ## Cek
 
