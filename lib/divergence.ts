@@ -58,6 +58,11 @@ constraintIfPinned: plain-English imperative sentence forcing THIS SAME branch
 (e.g. for branch "redis": "Use redis for session storage."). No code, no comment markers.
 etaSeconds: honest estimate of how long a coding agent needs for the whole task.
 
+REPO CONTEXT is the codebase the agent can edit. It matters ONLY if the request is
+about changing that codebase. For research, analysis, comparisons or writing tasks,
+ignore it completely and never propose decisions about its code (auth, storage, ...).
+Write labels, questions and constraints in the language of the user's prompt.
+
 Output only decisions the user would be annoyed to discover 90 seconds from now.
 Output an empty list if the prompt has no real decision points.`
 
