@@ -206,6 +206,7 @@ export default function Page() {
     setOpenReady(null)
     startRef.current = Date.now()
     ;(document.activeElement as HTMLElement | null)?.blur()   // supaya hotkey tidak mengetik ke input
+    void fetch('/api/steer').catch(() => {})   // panaskan route steer: tombol pertama harus < 1 detik
 
     const res = await fetch('/api/run', { method: 'POST', body: JSON.stringify({ prompt }) })
     if (!res.ok) {

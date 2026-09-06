@@ -8,6 +8,13 @@ const Body = z.object({
   verb: z.enum(['kill', 'pin']),
 })
 
+/** Pemanasan: dipanggil UI begitu run mulai, supaya function + koneksi Redis route ini
+ *  sudah hidup saat tombol pertama ditekan (steer dingin 1.8 s, hangat ~150 ms). */
+export async function GET() {
+  await store.standing()
+  return new Response(null, { status: 204 })
+}
+
 /** KILL / PIN. Tidak memanggil model sama sekali — constraint-nya sudah dibuat
  *  saat scan. Itulah cara memenuhi aturan "efek terlihat < 1 detik". */
 export async function POST(req: Request) {

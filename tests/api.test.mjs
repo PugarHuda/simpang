@@ -35,6 +35,8 @@ a(scan && scan.divergences.length > 0, `scan: ${scan?.divergences.length} diverg
 const d0 = scan.divergences[0]
 
 // 3. Steer instan, tanpa panggilan model: constraint sudah ada sejak scan.
+//    UI memanaskan route steer saat run mulai; tes meniru itu (GET = warm-up, 204).
+a((await fetch(`${BASE}/api/steer`)).status === 204, 'steer: warm-up 204')
 const t0 = Date.now()
 const s1 = await post('/api/steer', { runId, divergenceId: d0.id, branchIdx: 0, verb: 'kill' }).then((r) => r.json())
 a(s1.status === 'queued' && s1.injected === d0.branches[0].constraintIfKilled && Date.now() - t0 < 1000, `steer: queued dalam ${Date.now() - t0}ms, injected "${s1.injected}"`)
