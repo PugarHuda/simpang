@@ -239,9 +239,13 @@ the labels are identical, or if the id is a duplicate. Nothing survives → **th
 panel does not appear.** The scan also estimates duration; a wait under 15 s →
 no panel.
 
-**The scan never blocks the main run.** A 40 s budget; if it fails or runs late,
-the user just sees an ordinary loading screen. Zero regression. That includes its
-store: a Redis hiccup in the scan path cannot take the main run down with it.
+**The scan runs beside the agent, never in front of it.** It used to block, and that made the
+first 25-40 seconds of every wait a spinner and nothing else — the emptiest stretch of a product
+whose whole point is that waiting should be worth something. The agent now starts the moment you
+press Enter and learns the tree's vocabulary at its next step boundary, through the same
+`prepareStep` injection point steering uses. The scan keeps its 40 s budget; if it fails or runs
+late you simply never get a panel, and the answer is unaffected. That includes its store: a Redis
+hiccup in the scan path cannot take the main run down with it.
 
 **No user action evaporates.** Three levels of degradation:
 
@@ -293,6 +297,13 @@ across instances through Redis; in-memory without it). The limit is checked
 before body validation, so even a malformed request cannot trigger a paid run.
 x402 payments go to the agent's wallet (`X402_PAY_TO`), not a throwaway address.
 
+**The agent's wallet has a budget it cannot argue with.** `findPaidData` returns Bazaar listings
+whose description, service name and tags were written by whoever registered the resource — text the
+model is then asked to act on, while holding a funded wallet for up to 30 steps. So `paidFetch`
+asks each URL unpaid first, reads the price out of the 402 challenge, and refuses before any
+signature if it exceeds `X402_MAX_CALL_USD` (default $0.10) or what is left of
+`X402_RUN_BUDGET_USD` (default $0.50). A challenge it cannot parse is priced as infinite, not free.
+
 ## Roadmap
 
 - [x] Divergence scan + quality gate
@@ -306,4 +317,6 @@ x402 payments go to the agent's wallet (`X402_PAY_TO`), not a throwaway address.
 - [x] Playwright e2e against real models
 - [x] Multi-instance store (Redis) for the serverless deploy
 - [x] x402 Bazaar on both sides: SIMPANG buys from the catalog and sells into it
-- [ ] The hackathon's own curated x402 catalog (its URL was never found)
+- [ ] Wire the hackathon's curated x402 catalog. Commons gives each builder 50 x402 credits
+      against it; `findPaidData` / `paidFetch` already speak the protocol, so this is a catalog
+      URL away

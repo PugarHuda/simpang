@@ -251,7 +251,8 @@ export default function Page() {
         if (e.type === 'run') runIdRef.current = e.runId
         if (e.type === 'scan') {
           setDivs(e.divergences); setLocked({ count: e.locked, price: e.price ?? '$0.01' }); setEta(e.etaSeconds ?? 0)
-          if (e.skipped) setScanNote(`estimated wait ${e.etaSeconds}s · too short for the panel`)
+          if (e.skipped === 'scan-failed') setScanNote('the scan did not finish · the agent is unaffected')
+          else if (e.skipped) setScanNote(`estimated wait ${e.etaSeconds}s · too short for the panel`)
           else if (!e.divergences.length) setScanNote('no real decisions in this prompt · the panel stays quiet')
         }
         if (e.type === 'text') setOut((o) => o + e.delta)
@@ -365,7 +366,7 @@ export default function Page() {
         </div>
 
         {status === 'idle' && (
-          <div className="text-[12px] text-neutral-500 space-y-2" data-testid="intro">
+          <div className="text-[12px] text-neutral-400 space-y-2" data-testid="intro">
             <p>
               Type a task, press Enter. While the agent works, its decision points appear as a tree.
               Kill the wrong branch before the agent spends a whole turn on it; the branches that
@@ -383,9 +384,9 @@ export default function Page() {
         )}
 
         {status === 'running' && !divs.length && !scanNote && (
-          <div className="text-neutral-600 text-[13px] animate-pulse" data-testid="scanning">scanning…</div>
+          <div className="text-neutral-400 text-[13px] animate-pulse" data-testid="scanning">scanning…</div>
         )}
-        {scanNote && <div className="text-neutral-600 text-[12px]" data-testid="scan-note">{scanNote}</div>}
+        {scanNote && <div className="text-neutral-400 text-[12px]" data-testid="scan-note">{scanNote}</div>}
 
         {other && (
           <div className="border border-sky-900/60 rounded-md" data-testid="helping">
@@ -410,7 +411,7 @@ export default function Page() {
               onSteer={steer}
               onPay={unlock}
             />
-            <div className="text-[11px] text-neutral-600" data-testid="legend">
+            <div className="text-[11px] text-neutral-400" data-testid="legend">
               {ask
                 ? '[y] take left · [n] take right · [space] next'
                 : `[1-${lastKey}] kill · [⇧1-${lastKey}] pin · click a row = kill · [space] ask · [esc] ignore · [tab] help someone`}
@@ -420,7 +421,7 @@ export default function Page() {
           </>
         )}
         {divs.length > 0 && collapsed && (
-          <div className="text-[12px] text-neutral-600" data-testid="collapsed">
+          <div className="text-[12px] text-neutral-400" data-testid="collapsed">
             {divs.length} decisions hidden · [esc] show
           </div>
         )}
@@ -437,7 +438,7 @@ export default function Page() {
         )}
 
         {status === 'running' && log.length > 0 && (
-          <div className="text-[12px] text-neutral-500 space-y-0.5" data-testid="activity">
+          <div className="text-[12px] text-neutral-400 space-y-0.5" data-testid="activity">
             {log.map((l, i) => (
               <div key={i} className={i === log.length - 1 ? 'text-neutral-400' : 'text-neutral-700'}>
                 {i === log.length - 1 ? <span className="animate-pulse">●</span> : '○'} {l}

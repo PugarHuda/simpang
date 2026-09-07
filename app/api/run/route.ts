@@ -62,18 +62,28 @@ export async function POST(req: Request) {
         }
         run.divergences = divergences
         await store.saveBase(run)   // steer/unlock/others in another process need the tree
-        if (divergences.length) {
-          emit({ type: 'scan', divergences: store.visible(run), locked: store.locked(run), price: X402.price, etaSeconds })
-          void prefetch(run, context, emit)   // the alternative branch is computed WHILE you wait
-        }
-      }).catch((err) => console.warn('scan path dropped:', String(err).slice(0, 200)))
+        // Emitted even when the gate leaves nothing standing. It used to be sent only when there
+        // were branches to show, so a prompt with no real decisions left the page saying
+        // "scanning…" for the rest of the run — the one state where the UI was lying about what
+        // was happening. Now silence is something the panel says on purpose.
+        emit({ type: 'scan', divergences: store.visible(run), locked: store.locked(run), price: X402.price, etaSeconds })
+        if (divergences.length) void prefetch(run, context, emit)   // computed WHILE you wait
+      }).catch((err) => {
+        console.warn('scan path dropped:', String(err).slice(0, 200))
+        emit({ type: 'scan', divergences: [], locked: 0, etaSeconds: 0, skipped: 'scan-failed' })
+      })
 
+      // The scan runs BESIDE the agent now, not in front of it. It used to block, so the first
+      // 25-40s of every wait was a spinner and nothing else — the emptiest stretch of a product
+      // whose whole thesis is that waiting should be worth something. The agent starts at once
+      // and picks up the tree's vocabulary at its next step boundary, through the same injection
+      // point steering already uses.
       try {
-        await scanning // the tree has to exist before the user can prune it
-        await liveRun(run, prompt, emit)
+        await liveRun(run, prompt, emit, scanning)
       } catch (err) {
         emit({ type: 'error', message: humanError(err) })
       }
+      await scanning   // a slow scan still has to land before the run is scored
 
       try { await finish(run, emit) } catch (err) { emit({ type: 'error', message: humanError(err) }) }
       if (open) { open = false; controller.close() }
@@ -92,17 +102,16 @@ export async function POST(req: Request) {
 
 /* ---------------------------------------------------------------- main ---- */
 
-async function liveRun(run: Run, prompt: string, emit: Emit) {
+async function liveRun(run: Run, prompt: string, emit: Emit, scanning: Promise<unknown>) {
   const ws = workspace(run.id)
-  const divergences = run.divergences
 
-  // The main run is handed the tree's vocabulary: id, axis, the two exact labels. Committing = the `decide` tool call.
-  const vocabulary = divergences.length
-    ? '\n\nDecision points already identified for this task. BEFORE writing any file, call the `decide` tool ' +
-      'once per decision point you have resolved. This is MANDATORY before the first writeFile:\n' +
-      divergences.map((d) => `- ${d.id} (${d.axis}): 0 = "${d.branches[0].label}", 1 = "${d.branches[1].label}"`).join('\n')
+  // Read at every step, never captured: the scan is still running when the agent starts, so the
+  // tree's vocabulary — id, axis, the two exact labels — arrives mid-run, or not at all.
+  const vocabulary = () => run.divergences.length
+    ? '\n\nDecision points identified for this task. BEFORE writing any file, call the `decide` tool ' +
+      'once per decision point you have resolved:\n' +
+      run.divergences.map((d) => `- ${d.id} (${d.axis}): 0 = "${d.branches[0].label}", 1 = "${d.branches[1].label}"`).join('\n')
     : ' State each decision on its own line as: "Decision - <axis>: going with <choice>."'
-  const ids = divergences.map((d) => d.id)
 
   // Code task: repo tools. Research/analysis task: live-data tools. The final answer is the deliverable.
   const system = 'You are a capable agent. Decide from the request what kind of task it is.\n' +
@@ -110,7 +119,7 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
     '(the user sees a real diff); finish with a short summary.\n' +
     '- Research/analysis task (prices, news, comparisons, reports): fetch live data with marketData / webSearch / ' +
     'paidFetch, then write the full deliverable as your final answer in markdown with concrete numbers, dates and sources. ' +
-    'Never say you lack data access: you have these tools. Answer in the language of the request.' + vocabulary
+    'Never say you lack data access: you have these tools. Answer in the language of the request.'
   const steering: string[] = []   // every directive that has landed; they hold until the run ends
 
   const result = streamText({
@@ -147,7 +156,9 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
       decide: tool({
         description: 'Record which branch you are taking for an identified decision point.',
         inputSchema: z.object({
-          decision: ids.length ? z.enum(ids as [string, ...string[]]) : z.string(),
+          // Not an enum any more: the tree may not exist when this tool is built. The execute
+          // below rejects an id that is not on the tree, which is the same guarantee.
+          decision: z.string().describe('the id of a decision point'),
           branch: z.union([z.number(), z.string()]).describe('0 or 1'),
           why: z.string().describe('one short sentence'),
         }),
@@ -169,6 +180,12 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
     // `instructions` per step.
     prepareStep: async ({ stepNumber }) => {
       emit({ type: 'step', n: stepNumber })
+      // The agent starts before the tree exists, so the wait is never a blank spinner — but it
+      // must not race past the tree either. Letting it run free cost the whole point on short
+      // tasks: a fast research run finished before the scan landed, and the user's first prune
+      // arrived at a run that was already over. So it takes one step, then waits here for the
+      // tree. The scan carries its own 40s budget, so this can never hang the run.
+      if (stepNumber === 1) await scanning
       const [pending, fresh] = await Promise.all([store.drain(run.id), store.get(run.id)])
         .catch((e): [string[], undefined] => {
           console.warn('steer drain dropped:', String(e).slice(0, 160))
@@ -180,13 +197,11 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
         steering.push(...pending)
         emit({ type: 'applied', constraints: pending })
       }
-      if (!steering.length) return {}
       return {
-        instructions:
-          system +
-          '\n\nThe user issued live steering directives. They OVERRIDE your earlier plan. ' +
-          'Apply them from this step onward:\n' +
-          steering.map((p) => `- ${p}`).join('\n'),
+        instructions: system + vocabulary() + (steering.length
+          ? '\n\nThe user issued live steering directives. They OVERRIDE your earlier plan. ' +
+            'Apply them from this step onward:\n' + steering.map((p) => `- ${p}`).join('\n')
+          : ''),
       }
     },
   })

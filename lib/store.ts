@@ -32,6 +32,7 @@ export type Run = RunBase & {
 }
 
 const TTL = 24 * 3600
+const PRIOR_TTL = 30 * 24 * 3600   // learned preferences outlive runs, but not forever
 
 interface Backend {
   saveBase(run: RunBase): Promise<void>
@@ -107,7 +108,8 @@ function redisBackend(url: string, token: string): Backend {
       const ids = await r.zrange<string[]>('runs:active', '+inf', cutoff, { byScore: true, rev: true, offset: 0, count: 5 })
       return ids.find((x) => x !== exclude)
     },
-    async bumpPrior(c) { return r.hincrby('prior', c, 1) },
+    // Everything else here expires; without this the prior is the one key that grows forever.
+    async bumpPrior(c) { const n = await r.hincrby('prior', c, 1); await r.expire('prior', PRIOR_TTL); return n },
     async standing() {
       const all = await r.hgetall<Record<string, number>>('prior')
       return Object.entries(all ?? {}).filter(([, n]) => Number(n) >= 3).map(([c]) => c)

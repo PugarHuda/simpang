@@ -17,7 +17,7 @@ export const maxDuration = 60
 const Body = z.object({ prompt: z.string().trim().min(3).max(2000), repoContext: z.string().max(60_000).optional() })
 
 const handler = async (req: NextRequest): Promise<NextResponse<unknown>> => {
-  const limited = await rateLimited(req)
+  const limited = await rateLimited(req, true)   // its own allowance: this one is paid for
   if (limited) return NextResponse.json(await limited.json(), { status: 429 })
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'prompt required (3-2000 chars)' }, { status: 400 })

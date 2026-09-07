@@ -110,6 +110,15 @@ export function researchTools(emit: Emit) {
 
   const buyerKey = process.env.X402_BUYER_PRIVATE_KEY as `0x${string}` | undefined
   if (buyerKey) {
+    // The agent decides what to buy from tool output it did not write: Bazaar listings carry a
+    // description, service name and tags supplied by whoever registered the resource. That text
+    // reaches the model as data it is asked to act on, and the model holds a funded wallet for up
+    // to 30 steps. So the wallet gets a budget the model cannot talk its way past: every purchase
+    // is priced from the unpaid 402 challenge first and refused before any signature if it breaks
+    // the per-call ceiling or what is left of the run.
+    const MAX_CALL = Number(process.env.X402_MAX_CALL_USD ?? 0.10)
+    const RUN_BUDGET = Number(process.env.X402_RUN_BUDGET_USD ?? 0.50)
+    let spent = 0
     const account = privateKeyToAccount(buyerKey)
     const client = new x402Client().register('eip155:*', new ExactEvmScheme(account))
     const pay = wrapFetchWithPayment(fetch, client)
@@ -125,12 +134,32 @@ export function researchTools(emit: Emit) {
       execute: async ({ url, method, body }) => {
         try { await assertPublicUrl(url) } catch (e) { return `refused: ${(e as Error).message}` }
         emit({ type: 'tool', name: 'paid', path: url })
-        const res = await pay(url, {
+        const init: RequestInit = {
           method: method ?? (body ? 'POST' : 'GET'),
           headers: { accept: 'application/json, text/plain;q=0.9, */*;q=0.5', ...(body ? { 'content-type': 'application/json' } : {}) },
           body: body ? JSON.stringify(body) : undefined,
           redirect: 'manual',
-        })
+        }
+
+        // Ask without paying first. A free endpoint answers here and costs nothing extra; a paid
+        // one answers 402 and names its price, which is the only chance to refuse it.
+        const probe = await fetch(url, init)
+        if (probe.status === 402) {
+          let accepts: { amount?: string }[] = []
+          try {
+            const challenge = probe.headers.get('payment-required')
+            if (challenge) accepts = JSON.parse(Buffer.from(challenge, 'base64').toString()).accepts ?? []
+          } catch { /* unreadable challenge -> priced as Infinity below, which refuses it */ }
+          // USDC is 6dp. An unreadable challenge is treated as too expensive rather than free.
+          const usd = accepts.length ? Number(accepts[0].amount) / 1e6 : Infinity
+          if (!(usd <= MAX_CALL))
+            return `refused: this resource costs ${Number.isFinite(usd) ? `$${usd}` : 'an amount I could not read'}, over the $${MAX_CALL} per-call limit`
+          if (spent + usd > RUN_BUDGET)
+            return `refused: $${spent.toFixed(2)} of the $${RUN_BUDGET} budget for this run is already spent`
+          spent += usd
+        }
+
+        const res = probe.status === 402 ? await pay(url, init) : probe
         let receipt: unknown = null
         try { receipt = http.getPaymentSettleResponse((n) => res.headers.get(n)) } catch { /* not a paid endpoint */ }
         const text = (await res.text()).slice(0, 8000)

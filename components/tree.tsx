@@ -78,10 +78,10 @@ export function Tree({
                         <span className="ml-1 text-sky-400" title="pruned by someone else via [tab]" data-testid={`helped-${d.id}-${bi}`}>🤝</span>
                       )}
                     </span>
-                    <span className="hidden sm:inline w-20 tabular-nums text-neutral-600">{b.filesTouched > 0 ? `~${b.filesTouched} files` : ''}</span>
-                    <span className="hidden sm:inline w-14 tabular-nums text-neutral-600">{b.costUsd > 0 ? `$${b.costUsd.toFixed(2)}` : ''}</span>
+                    <span className="hidden sm:inline w-20 tabular-nums text-neutral-400">{b.filesTouched > 0 ? `~${b.filesTouched} files` : ''}</span>
+                    <span className="hidden sm:inline w-14 tabular-nums text-neutral-400">{b.costUsd > 0 ? `$${b.costUsd.toFixed(2)}` : ''}</span>
                     <Bar v={b.confidence} />
-                    <span className="hidden md:block flex-1 truncate text-neutral-600">{b.sketch}</span>
+                    <span className="hidden md:block flex-1 truncate text-neutral-400">{b.sketch}</span>
                     {state !== 'won' && state !== 'lost' && (
                       // These buttons are the keyboard path into the tree, so focus has to reveal them too —
                       // otherwise you can tab to a control you cannot see.
@@ -103,7 +103,7 @@ export function Tree({
               })
             )}
             {notes[d.id] && done !== undefined && (
-              <div className="pl-8 text-[11px] text-neutral-600 truncate" data-testid={`why-${d.id}`} title={notes[d.id]}>
+              <div className="pl-8 text-[11px] text-neutral-400 truncate" data-testid={`why-${d.id}`} title={notes[d.id]}>
                 ↳ {notes[d.id]}
               </div>
             )}
@@ -115,7 +115,7 @@ export function Tree({
         <button
           onClick={onPay}
           data-testid="paywall"
-          className="w-full text-left px-3 py-2 border-t border-neutral-900 text-[12px] text-neutral-500 hover:bg-neutral-900/60"
+          className="w-full text-left px-3 py-2 border-t border-neutral-900 text-[12px] text-neutral-400 hover:bg-neutral-900/60"
         >
           {locked.count} more futures · {locked.price} USDC per branch ·{' '}
           <span className="text-neutral-300">[enter] pay via x402</span>
@@ -130,7 +130,7 @@ export function Tree({
 function Bar({ v }: { v: number }) {
   const n = Math.round(v * 6)
   return (
-    <span className="tabular-nums text-neutral-600 shrink-0">
+    <span className="tabular-nums text-neutral-400 shrink-0">
       <span className="text-neutral-400">{'▓'.repeat(n)}</span>
       {'░'.repeat(6 - n)} {Math.round(v * 100)}%
     </span>

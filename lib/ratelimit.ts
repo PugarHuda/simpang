@@ -44,9 +44,30 @@ if (url && token) {
 export const clientIp = (req: Request) =>
   req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || 'local'
 
+/** The paid scan is a product, not a free endpoint, so it gets its own allowance instead of
+ *  competing with free traffic for the same one. */
+const PAID_PER_IP = Number(process.env.SIMPANG_PAID_LIMIT ?? 60)
+const paidHits = new Map<string, number[]>()
+let checkPaid: (ip: string) => Promise<Verdict>
+if (url && token) {
+  const paid = new Ratelimit({ redis: new Redis({ url, token }), limiter: Ratelimit.slidingWindow(PAID_PER_IP, '1 h'), prefix: 'rl:paid', analytics: false })
+  checkPaid = async (ip) => {
+    const r = await paid.limit(ip)
+    return { ok: r.success, remaining: r.remaining, resetMs: r.reset - Date.now(), scope: r.success ? 'none' : 'ip' }
+  }
+} else {
+  checkPaid = async (ip) => {
+    const now = Date.now()
+    const arr = (paidHits.get(ip) ?? []).filter((t) => now - t < 3600_000)
+    if (arr.length >= PAID_PER_IP) return { ok: false, remaining: 0, resetMs: arr[0] + 3600_000 - now, scope: 'ip' }
+    arr.push(now); paidHits.set(ip, arr)
+    return { ok: true, remaining: PAID_PER_IP - arr.length, resetMs: 0, scope: 'none' }
+  }
+}
+
 /** null when the request may proceed; a 429 Response when it may not. */
-export async function rateLimited(req: Request): Promise<Response | null> {
-  const v = await check(clientIp(req))
+export async function rateLimited(req: Request, paid = false): Promise<Response | null> {
+  const v = await (paid ? checkPaid : check)(clientIp(req))
   if (v.ok) return null
   const secs = Math.max(1, Math.ceil(v.resetMs / 1000))
   return Response.json(
