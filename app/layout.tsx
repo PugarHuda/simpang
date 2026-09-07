@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -28,7 +29,9 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: "SIMPANG", description: BLURB },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+// Not Next's generated LayoutProps: that type only exists after a build, so a clean checkout
+// could not typecheck without building first.
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
