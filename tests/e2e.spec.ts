@@ -167,7 +167,11 @@ test.describe('phone: no keyboard, a research prompt', () => {
     await expect(output).not.toContainText(/(no|don't have|do not have|lack) (real-?time |live )?(data )?access/i)
     await expect(output.locator('table, h1, h2, h3').first()).toBeVisible()   // markdown is rendered, not raw text
     await expect(output).toContainText(/\$?\d{2}[.,]\d{3}/)                    // real price numbers
-    await expect(page.getByTestId('directives')).toContainText('✓ applied')
+    // A research run can be two steps long: one tool call, one answer. The queue is drained at the
+    // start of a step, so if the tree only appears as the agent begins its last one there is no
+    // boundary left to drain at. Either outcome is correct; silently claiming "queued" forever
+    // would not be.
+    await expect(page.getByTestId('directives')).toContainText(/✓ applied|✗ not applied/)
     // The agent's reason shows under a divergence once it is resolved.
     await expect(page.locator('[data-testid^="why-"]').first()).toBeVisible()
   })

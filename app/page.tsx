@@ -45,7 +45,6 @@ export default function Page() {
   const [status, setStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [divs, setDivs] = useState<Divergence[]>([])
   const [locked, setLocked] = useState({ count: 0, price: '$0.01' })
-  const [eta, setEta] = useState(0)
   const [scanNote, setScanNote] = useState('')
   const [actions, setActions] = useState<Record<string, Act>>({})
   const [committed, setCommitted] = useState<Record<string, number>>({})
@@ -229,7 +228,7 @@ export default function Page() {
     if (status === 'running' || prompt.trim().length < 3) return
     setStatus('running'); setOut(''); setDivs([]); setActions({}); setCommitted({}); setNotes({}); setDirectives([])
     setResult(null); setCollapsed(false); setAsk(null); setLate(null); setLocked({ count: 0, price: '$0.01' })
-    setErrors([]); setDiff(''); setShowDiff(false); setPrefetched([]); setLog([]); setEta(0); setScanNote('')
+    setErrors([]); setDiff(''); setShowDiff(false); setPrefetched([]); setLog([]); setScanNote('')
     setOpenReady(null)
     startRef.current = Date.now()
     ;(document.activeElement as HTMLElement | null)?.blur()   // so hotkeys don't type into the input
@@ -255,7 +254,7 @@ export default function Page() {
         const e = JSON.parse(l.slice(6))
         if (e.type === 'run') runIdRef.current = e.runId
         if (e.type === 'scan') {
-          setDivs(e.divergences); setLocked({ count: e.locked, price: e.price ?? '$0.01' }); setEta(e.etaSeconds ?? 0)
+          setDivs(e.divergences); setLocked({ count: e.locked, price: e.price ?? '$0.01' })
           if (e.skipped === 'scan-failed') setScanNote('the scan did not finish · the agent is unaffected')
           else if (e.skipped) setScanNote(`estimated wait ${e.etaSeconds}s · too short for the panel`)
           else if (!e.divergences.length) setScanNote('no real decisions in this prompt · the panel stays quiet')
@@ -331,7 +330,6 @@ export default function Page() {
   const secs = (t / 1000).toFixed(1)
   const lastKey = KEY_LABELS[Math.max(0, divs.length * 2 - 1)]
   const diffStat = diff ? `${(diff.match(/^\+[^+]/gm) ?? []).length}+ ${(diff.match(/^-[^-]/gm) ?? []).length}- · ${(diff.match(/^diff --git/gm) ?? []).length} files` : ''
-  const progress = eta > 0 ? Math.min(1, t / 1000 / eta) : 0
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-200 font-mono p-4 md:p-10">
@@ -340,16 +338,13 @@ export default function Page() {
           <a href="https://github.com/PugarHuda/simpang" className="text-neutral-100 tracking-widest hover:underline">SIMPANG</a>
           <span className="text-neutral-600 hidden sm:inline">you pick the direction at every fork</span>
           <span className="ml-auto tabular-nums text-neutral-500" data-testid="clock">
+            {/* The scan's etaSeconds was measured 9x off — it promised ~2400s for a run that took
+                270s, and the progress bar built on it read 11% as the answer landed. A number that
+                wrong is worse than no number, so the estimate is kept only as the coarse gate that
+                decides whether a panel is worth showing at all. */}
             {status === 'idle' ? '--:--' : `${secs}s`}
-            {eta > 0 && status === 'running' && <span className="text-neutral-700"> / ~{eta}s est</span>}
           </span>
         </header>
-        {status === 'running' && eta > 0 && (
-          <div className="h-px bg-neutral-900 -mt-3" aria-hidden>
-            <div className="h-px bg-neutral-500 transition-all duration-300" style={{ width: `${progress * 100}%` }} />
-          </div>
-        )}
-
         <div className="flex gap-2">
           <input
             value={prompt}
