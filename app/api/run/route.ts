@@ -10,6 +10,22 @@ import { rateLimited } from '@/lib/ratelimit'
 export const maxDuration = 300
 
 type Emit = (e: Record<string, unknown>) => void
+
+/** Provider errors reach the user verbatim otherwise, and "402 {\"error\":\"insufficient…" is not
+ *  something anyone should have to read. Everything unrecognised still passes through unchanged —
+ *  a wrong-but-readable message would be worse than a raw one. */
+function humanError(err: unknown): string {
+  const raw = String(err)
+  if (/insufficient|payment required|quota|credit|\b402\b/i.test(raw))
+    return 'this instance has run out of model credit — the owner needs to top it up'
+  if (/\b(401|403)\b|unauthor|invalid api key/i.test(raw))
+    return "the model provider rejected this instance's API key"
+  if (/\b429\b|rate.?limit/i.test(raw))
+    return 'the model provider is rate-limiting this instance, try again in a minute'
+  if (/timeout|aborted|ETIMEDOUT|ECONNRESET|fetch failed/i.test(raw))
+    return 'the model provider did not answer in time'
+  return raw
+}
 const Body = z.object({ prompt: z.string().trim().min(3).max(2000) })
 
 export async function POST(req: Request) {
@@ -56,10 +72,10 @@ export async function POST(req: Request) {
         await scanning // the tree has to exist before the user can prune it
         await liveRun(run, prompt, emit)
       } catch (err) {
-        emit({ type: 'error', message: String(err) })
+        emit({ type: 'error', message: humanError(err) })
       }
 
-      try { await finish(run, emit) } catch (err) { emit({ type: 'error', message: String(err) }) }
+      try { await finish(run, emit) } catch (err) { emit({ type: 'error', message: humanError(err) }) }
       if (open) { open = false; controller.close() }
     },
     // Tab closed / connection dropped. Without this the next emit throws from inside start()
@@ -102,7 +118,7 @@ async function liveRun(run: Run, prompt: string, emit: Emit) {
     stopWhen: stepCountIs(30),   // one-tool-per-step models (qwen) need more than 16
     maxOutputTokens: GUARDS.maxOutputTokens,
     // Without this a provider error closes the stream silently and the user just sees a blank screen.
-    onError: ({ error }) => emit({ type: 'error', message: String(error) }),
+    onError: ({ error }) => emit({ type: 'error', message: humanError(error) }),
     system,
     prompt: `${prompt}\n\nFiles in the repo (only relevant for code tasks): ${listFiles().join(', ')}`,
     tools: {

@@ -83,7 +83,9 @@ export function Tree({
                     <Bar v={b.confidence} />
                     <span className="hidden md:block flex-1 truncate text-neutral-600">{b.sketch}</span>
                     {state !== 'won' && state !== 'lost' && (
-                      <span className="ml-auto flex gap-1 text-[11px] md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      // These buttons are the keyboard path into the tree, so focus has to reveal them too —
+                      // otherwise you can tab to a control you cannot see.
+                      <span className="ml-auto flex gap-1 text-[11px] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                         <button
                           data-testid={`kill-${d.id}-${bi}`} aria-label={`kill ${b.label}`}
                           onClick={(e) => { e.stopPropagation(); onSteer(d.id, bi, 'kill') }}

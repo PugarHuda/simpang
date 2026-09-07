@@ -8,7 +8,8 @@
     "start": "next start",
     "test": "playwright test",
     "test:api": "node tests/api.test.mjs",
-    "test:ratelimit": "node tests/ratelimit.test.mjs"
+    "test:ratelimit": "node tests/ratelimit.test.mjs",
+    "test:unit": "playwright test -c playwright.unit.config.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.44",

@@ -4,7 +4,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 export const GUARDS = {
   minEtaSeconds: 15,     // the scan estimates a shorter wait than this: no panel
   scanBudgetMs: 40000,   // a late scan is a dropped scan; the main run is never delayed (luna 15-30s)
-  maxDivergences: 6,
+  maxDivergences: 5,   // the scan prompt asks for at most 5; the gate must not disagree with it
   freeBranches: Number(process.env.SIMPANG_FREE_BRANCHES ?? 3), // the rest sit behind x402, one divergence per payment
   prefetchCap: 2,        // surviving branches actually computed while you wait
   leadConfidenceCeiling: 0.85, // above this it is not a decision, just an assumption

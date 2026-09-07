@@ -1,0 +1,27 @@
+name: ci
+
+# The e2e suite talks to real models and a real facilitator, so it costs money and cannot run on
+# every push. Everything that is free runs here: types, the deterministic core, and the build.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: types
+        run: npx tsc --noEmit
+      - name: quality gate
+        run: npm run test:unit
+      - name: build
+        # No provider key on purpose: the app has to build without one, and /api/run answers 503
+        # rather than crashing when none is configured.
+        run: npm run build

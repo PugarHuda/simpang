@@ -59,6 +59,14 @@ divergences; gpt-4o-mini 4 s but it offers choices the prompt had already made;
 deepseek/gemma think for 10-30 s first; claude-sonnet-5 22 s and expensive.
 Override with `SIMPANG_MAIN_MODEL` / `SIMPANG_SCAN_MODEL`.
 
+**What the public deployment runs.** `claude-sonnet-5` is the best main run and the default here,
+but at $3/$15 per million tokens one run costs roughly $0.30 — an open demo would spend its way
+to a 503 in a day. So https://simpang.vercel.app sets `SIMPANG_MAIN_MODEL=deepseek-v4-flash`
+($0.138/$0.275, about 35x cheaper) and a lower daily cap. It passes the same end-to-end test:
+it calls the tools, writes real files, honours a kill, and scores 100% calibration — it is just
+slower, around 4 minutes against sonnet's 2. Run it locally with the default for the better
+answer.
+
 **Repo.** Defaults to `examples/acme` (a small app with JWT auth). Point at
 another repo with `SIMPANG_REPO_DIR`. The agent reads and writes in a per-run
 copy (`.simpang/runs/<id>/`); the original repo is never touched.
@@ -121,8 +129,13 @@ Every test runs against real models and a real facilitator (~$0.03 per run with
 `qwen3-coder` as the main run). Needs `VENICE_API_KEY`.
 
 ```bash
-npm test          # Playwright: starts its own server on :3101 (stop any other dev server first)
+npm run test:unit # the deterministic core: no browser, no server, no spend (~1s)
+npm test          # Playwright e2e: starts its own server on :3101 (stop any other dev server first)
 ```
+
+`test:unit` covers `qualityGate`, the part of the scan that does not depend on a model behaving —
+every rule the section above calls deterministic is asserted there, and CI runs it on each push
+along with `tsc` and the build.
 
 Five e2e scenarios (`tests/e2e.spec.ts`):
 
