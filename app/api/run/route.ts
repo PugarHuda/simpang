@@ -121,10 +121,13 @@ async function liveRun(run: Run, prompt: string, emit: Emit, scanning: Promise<u
     'paidFetch, then write the full deliverable as your final answer in markdown with concrete numbers, dates and sources. ' +
     'Never say you lack data access: you have these tools. Answer in the language of the request.'
   const steering: string[] = []   // every directive that has landed; they hold until the run ends
+  const deadline = Date.now() + GUARDS.runBudgetMs
 
   const result = streamText({
     model: MODELS.main,
-    stopWhen: stepCountIs(30),   // one-tool-per-step models (qwen) need more than 16
+    // Steps AND the clock: 30 steps is what one-tool-per-step models need, but a slow model can
+    // spend the whole function on far fewer. Evaluated between steps, so it always stops cleanly.
+    stopWhen: [stepCountIs(30), () => Date.now() > deadline],
     maxOutputTokens: GUARDS.maxOutputTokens,
     // Without this a provider error closes the stream silently and the user just sees a blank screen.
     onError: ({ error }) => emit({ type: 'error', message: humanError(error) }),
@@ -216,6 +219,9 @@ async function liveRun(run: Run, prompt: string, emit: Emit, scanning: Promise<u
   // a fork on another instance can continue this working copy
   await Promise.all([store.saveFiles(run.id, ws.changed()), store.saveBase(run)])
     .catch((e) => console.warn('persist dropped:', String(e).slice(0, 160)))
+  // Say so rather than presenting a truncated answer as a finished one.
+  if (Date.now() > deadline)
+    emit({ type: 'error', message: `the run hit its ${Math.round(GUARDS.runBudgetMs / 1000)}s budget and was stopped early — what is below is what it finished` })
   emit({ type: 'patch', diff: run.diff, finishReason: await result.finishReason })
 }
 

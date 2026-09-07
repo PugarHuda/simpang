@@ -31,10 +31,14 @@ export async function POST(req: Request) {
   const isCode = run.diff.length > 0
   const ready = run.prefetch.find((p) => p.divergenceId === divergenceId && p.branchIdx === branchIdx && p.status === 'done')
 
+  // A fork is a second agent run and needs the same guards as the first. Without them a provider
+  // error closed the stream silently and the page sat on "↻ forking…" until the tab was closed.
+  const deadline = Date.now() + GUARDS.runBudgetMs
   const result = streamText({
     model: MODELS.main,
-    stopWhen: stepCountIs(12),
+    stopWhen: [stepCountIs(12), () => Date.now() > deadline],
     maxOutputTokens: GUARDS.maxOutputTokens,
+    onError: ({ error }) => console.warn('fork dropped:', String(error).slice(0, 200)),
     system: isCode
       ? 'You are revising your own earlier refactor. Change ONLY what depends on the decision below. ' +
         'Read the current files before writing. Keep everything else byte-identical. ' +

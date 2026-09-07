@@ -291,6 +291,12 @@ offering it. The `forget` button undoes it (`/api/prefs`).
 **A dropped connection does not lock the UI.** If the SSE breaks before `done`,
 the page pulls the last state from the server (output, diff, commits) and says so.
 
+**The agent stops on the clock, not on a step count.** The serverless ceiling is 300 s and cannot
+be raised on this plan. A cheaper main model is a slower one — a measured production run took
+270 s — so `stopWhen` carries a wall-clock condition alongside the step limit. Stopping at
+`GUARDS.runBudgetMs` still runs `finish()`, so the user keeps the diff and the calibration and is
+told the answer was cut short; being killed by the platform at 300 s would leave them with neither.
+
 **Endpoints that burn money are capped.** `/api/run` and `/api/fork` use
 `@upstash/ratelimit` (a per-IP sliding window plus a global daily quota, shared
 across instances through Redis; in-memory without it). The limit is checked

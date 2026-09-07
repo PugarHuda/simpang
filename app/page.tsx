@@ -130,10 +130,15 @@ export default function Page() {
     setOut((o) => o + '\n\n')
     const reader = res.body!.getReader()
     const dec = new TextDecoder()
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      setOut((o) => o + dec.decode(value, { stream: true }))
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        setOut((o) => o + dec.decode(value, { stream: true }))
+      }
+    } catch {
+      // The stream died mid-fork. Saying so beats leaving "↻ forking…" on screen forever.
+      return flash('✗ the fork was cut off · the original run is untouched', 6000)
     }
     setCommitted((c) => ({ ...c, [target.divergenceId]: target.branchIdx }))
     const state = await fetch(`/api/others?runId=${runIdRef.current}`).then((x) => x.json())
@@ -505,10 +510,12 @@ export default function Page() {
         )}
       </div>
 
-      {status !== 'running' && prefs.length > 0 && (
+      {/* Only after your own run: on a first visit this panel was the second thing on screen,
+          eight `forget` buttons for decisions the visitor had never made. */}
+      {status === 'done' && prefs.length > 0 && (
         <div className="mx-auto max-w-4xl mt-6 border border-neutral-900 rounded px-3 py-2 text-[12px] space-y-1" data-testid="prefs">
           <div className="text-neutral-500">
-            learned preferences · killed ≥3× = never offered as a decision again
+            learned across this deployment · killed ≥3× is never offered as a decision again
           </div>
           {prefs.slice(0, 8).map((p) => (
             <div key={p.constraint} className="flex items-baseline gap-2">

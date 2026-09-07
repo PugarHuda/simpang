@@ -9,6 +9,12 @@ export const GUARDS = {
   prefetchCap: 2,        // surviving branches actually computed while you wait
   leadConfidenceCeiling: 0.85, // above this it is not a decision, just an assumption
   maxOutputTokens: 8000,       // per step; 4000 was shown to truncate writeFile (finishReason: length)
+  // The serverless ceiling is 300s and cannot be raised on this plan. A cheaper main model is a
+  // slower one — a real run measured 270s, leaving 30s of margin — so the agent stops on the
+  // clock rather than on a step count, with room left for the classifier and the final save.
+  // Stopping early still runs finish(), so the user keeps the diff and the score. Being killed
+  // by the platform at 300s would leave them with neither.
+  runBudgetMs: 210_000,
 } as const
 
 /** x402 v2 through the official SDK (@x402/next). Defaults to Base Sepolia testnet plus the
