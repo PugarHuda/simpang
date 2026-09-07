@@ -38,8 +38,15 @@ const ids = venice
   ? { scan: 'openai-gpt-56-luna', main: 'claude-sonnet-5', prefetch: 'openai-gpt-4o-mini-2024-07-18' }
   : { scan: 'anthropic/claude-haiku-4.5', main: 'anthropic/claude-sonnet-5', prefetch: 'anthropic/claude-haiku-4.5' }
 const m = (id: string) => (venice ? venice.chatModel(id) : openrouter ? openrouter(id) : id)
+/** The ids actually in force after the env overrides. /api/health reports these: "configured"
+ *  does not tell you whether a deployment is running the expensive model or the cheap one. */
+export const MODEL_IDS = {
+  scan: process.env.SIMPANG_SCAN_MODEL ?? ids.scan,
+  main: process.env.SIMPANG_MAIN_MODEL ?? ids.main,
+  prefetch: process.env.SIMPANG_PREFETCH_MODEL ?? ids.prefetch,
+} as const
 export const MODELS = {
-  scan: m(process.env.SIMPANG_SCAN_MODEL ?? ids.scan),
-  main: m(process.env.SIMPANG_MAIN_MODEL ?? ids.main),
-  prefetch: m(process.env.SIMPANG_PREFETCH_MODEL ?? ids.prefetch),
+  scan: m(MODEL_IDS.scan),
+  main: m(MODEL_IDS.main),
+  prefetch: m(MODEL_IDS.prefetch),
 }

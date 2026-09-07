@@ -1,4 +1,4 @@
-import { HAS_MODEL, X402 } from '@/lib/config'
+import { HAS_MODEL, MODEL_IDS, X402 } from '@/lib/config'
 import { store, STORE_KIND } from '@/lib/store'
 import { bazaarHealth } from '@/lib/bazaar'
 
@@ -18,6 +18,7 @@ export async function GET() {
   const body = {
     ok: HAS_MODEL && redis.ok && facilitator.ok,
     model: HAS_MODEL ? 'configured' : 'missing',
+    models: HAS_MODEL ? MODEL_IDS : undefined,
     store: { kind: STORE_KIND, ...redis },
     x402: { network: X402.network, payTo: X402.payTo, facilitator: X402.facilitator, ...facilitator },
     bazaar,
