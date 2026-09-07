@@ -22,7 +22,7 @@ type Other = {
 }
 type Ready = { divergenceId: string; branchIdx: number; label: string; text: string }
 type Result = { calibration: number | null; prefetch: Ready[]; elapsedMs: number }
-type Directive = { text: string; at: number; applied: boolean }
+type Directive = { text: string; at: number; state: 'queued' | 'applied' | 'dropped' }
 type Pref = { constraint: string; count: number; standing: boolean }
 
 // Client identity for attribution (run owner vs helper via [tab]). Not authentication.
@@ -110,7 +110,7 @@ export default function Page() {
     // Late prune: the main run already committed to the other branch. Remember the
     // correction target (the branch it should have been) so [f] can fork without redoing it.
     if (r.status === 'late' && !helping) setLate({ divergenceId, branchIdx: verb === 'pin' ? branchIdx : 1 - branchIdx })
-    if (r.status === 'queued' && !helping) setDirectives((d) => [...d, { text: r.injected, at: Date.now(), applied: false }])
+    if (r.status === 'queued' && !helping) setDirectives((d) => [...d, { text: r.injected, at: Date.now(), state: 'queued' }])
     flash(r.status === 'late' ? `⚠ late · [f] fork the fix`
       : r.status === 'finished' ? `run already finished and agrees · recorded as a preference`
       : `${verb === 'kill' ? 'killed' : 'pinned'} · injected: "${r.injected}"`)
@@ -270,7 +270,7 @@ export default function Page() {
           if (e.why) setNotes((n) => ({ ...n, [e.divergenceId]: e.why }))
         }
         if (e.type === 'applied') {
-          setDirectives((d) => d.map((x) => (e.constraints.includes(x.text) ? { ...x, applied: true } : x)))
+          setDirectives((d) => d.map((x) => (e.constraints.includes(x.text) ? { ...x, state: 'applied' as const } : x)))
           flash(`applied: ${e.constraints.join(' / ')}`)
         }
         if (e.type === 'prefetch' && e.status === 'done') setPrefetched((p) => [...p, e.label])
@@ -286,7 +286,13 @@ export default function Page() {
         }
         if (e.type === 'error') setErrors((x) => [...x, e.message])
         if (e.type === 'patch') { setDiff(e.diff ?? ''); if (e.diff) note('diff ready · [d] show') }
-        if (e.type === 'done') { finished = true; setResult({ calibration: e.calibration, prefetch: e.prefetch, elapsedMs: e.elapsedMs }); setStatus('done') }
+        if (e.type === 'done') {
+          finished = true
+          // Anything still queued was waiting on a tool call the agent will now never make.
+          setDirectives((d) => d.map((x) => (x.state === 'queued' ? { ...x, state: 'dropped' as const } : x)))
+          setResult({ calibration: e.calibration, prefetch: e.prefetch, elapsedMs: e.elapsedMs })
+          setStatus('done')
+        }
       }
     }
     if (!finished) {
@@ -299,6 +305,7 @@ export default function Page() {
         setCommitted(state.committed ?? {})
         setErrors((x) => [...x, state.done ? 'connection dropped, result recovered from the server' : 'connection dropped before the agent finished'])
       } else setErrors((x) => [...x, 'connection dropped'])
+      setDirectives((d) => d.map((x) => (x.state === 'queued' ? { ...x, state: 'dropped' as const } : x)))
       setStatus('done')
     }
     void loadPrefs()
@@ -422,8 +429,8 @@ export default function Page() {
           <div className="border border-neutral-900 rounded px-3 py-2 text-[12px] space-y-0.5" data-testid="directives">
             <div className="text-neutral-500">steering → agent</div>
             {directives.map((d, i) => (
-              <div key={i} className={d.applied ? 'text-emerald-400' : 'text-amber-300'}>
-                {d.applied ? '✓ applied' : '… queued'} · {d.text}
+              <div key={i} className={d.state === 'applied' ? 'text-emerald-400' : d.state === 'dropped' ? 'text-neutral-500' : 'text-amber-300'}>
+                {d.state === 'applied' ? '✓ applied' : d.state === 'dropped' ? '✗ not applied · the run ended first' : '… queued'} · {d.text}
               </div>
             ))}
           </div>

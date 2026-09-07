@@ -237,6 +237,7 @@ store: a Redis hiccup in the scan path cannot take the main run down with it.
 | The main run has steps left | Injected at the next step boundary |
 | The main run already committed to that branch | `late` → `f` forks in the same working copy |
 | The main run already finished | 409; the constraint is already in the prior for the next run |
+| The run ended before the queue was drained | the directive flips to `✗ not applied · the run ended first` — it never sits there still claiming to be queued |
 
 **Real prefetch.** The lower-confidence branch of the top two divergences is
 computed by a second model while you wait (files touched plus the code). Dropped

@@ -52,6 +52,10 @@ test('a kill changes execution: steer -> injected -> commits to the opposite bra
   await expect(page.getByTestId('activity')).toBeVisible({ timeout: 120_000 })
 
   await expect(page.getByTestId('result')).toBeVisible({ timeout: 240_000 })
+  // Once the run is over, nothing may still claim to be waiting for a tool call that will never
+  // come. Every directive has resolved one way or the other.
+  if (await page.getByTestId('directives').isVisible())
+    await expect(page.getByTestId('directives')).not.toContainText('… queued')
   // The main run MUST NOT take the killed branch: that is the one claim that cannot be faked.
   await expect(page.getByTestId(`branch-${ids[0]}-0`)).toHaveAttribute('data-state', 'lost')
   await expect(page.getByTestId(`branch-${ids[0]}-1`)).toHaveAttribute('data-state', 'won')
