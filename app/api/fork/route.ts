@@ -33,7 +33,7 @@ export async function POST(req: Request) {
 
   // A fork is a second agent run and needs the same guards as the first. Without them a provider
   // error closed the stream silently and the page sat on "↻ forking…" until the tab was closed.
-  const deadline = Date.now() + GUARDS.runBudgetMs
+  const deadline = Date.now() + GUARDS.forkBudgetMs
   const result = streamText({
     model: MODELS.main,
     stopWhen: [stepCountIs(12), () => Date.now() > deadline],

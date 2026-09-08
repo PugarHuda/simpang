@@ -15,6 +15,11 @@ export const GUARDS = {
   // Stopping early still runs finish(), so the user keeps the diff and the score. Being killed
   // by the platform at 300s would leave them with neither.
   runBudgetMs: 210_000,
+  // A fork revises: it starts from the current diff plus the prefetched draft, so it does not need
+  // the whole run budget. It was taking 210s+ behind a button labelled "ready now", which is the
+  // second wait of the session and the one nobody signed up for.
+  // ponytail: one flat ceiling; per-task budgets if code forks start truncating.
+  forkBudgetMs: 150_000,
 } as const
 
 /** x402 v2 through the official SDK (@x402/next). Defaults to Base Sepolia testnet plus the

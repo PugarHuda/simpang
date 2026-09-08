@@ -120,7 +120,10 @@ export default function Page() {
     const target = explicit ?? late
     if (!target) return
     setLate(null)
-    flash('↻ forking…', 60000)
+    // The fork's server ceiling is GUARDS.forkBudgetMs (150s) plus one step's overrun and the
+    // save. A 60s toast expired mid-fork and left the page silent while it was still working.
+    const startedAt = Date.now()
+    flash('↻ forking…', 240_000)
     const res = await fetch('/api/fork', {
       method: 'POST', headers: hdr(),
       body: JSON.stringify({ runId: runIdRef.current, ...target }),
@@ -142,7 +145,9 @@ export default function Page() {
     setCommitted((c) => ({ ...c, [target.divergenceId]: target.branchIdx }))
     const state = await fetch(`/api/others?runId=${runIdRef.current}`).then((x) => x.json())
     if (state.diff) setDiff(state.diff)
-    flash('forked · diff updated')
+    flash(Date.now() - startedAt > 150_000
+      ? 'forked · diff updated · the fork hit its budget, the revision may be partial'
+      : 'forked · diff updated', 6000)
   }, [late, flash])
 
   // x402 through the official SDK: [enter] while a branch is locked. The browser wallet signs,
