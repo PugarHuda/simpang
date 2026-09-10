@@ -31,24 +31,40 @@ export const X402 = {
   facilitator: process.env.X402_FACILITATOR_URL ?? 'https://x402.org/facilitator',
 } as const
 
-// Providers, in priority order: Venice (OpenAI-compatible) > OpenRouter > AI Gateway (model as a string).
+// Providers, in priority order: Commons > Venice > OpenRouter > AI Gateway (model as a string).
+// Commons hosts an OpenAI-compatible API at api.commonsmade.com/v1 — an unauthenticated GET
+// /v1/models answers `{"detail":{"message":"Missing Commons token"}}`. It is the hackathon's own
+// runtime, and tokens spent through it are the only ones that register on the tokens-spent board:
+// a personal provider key scores zero there however much it is run. It also draws on the builder's
+// free monthly credits rather than a paid balance.
+// ponytail: no fallback chain between providers; whichever key is set wins, /api/health says which.
+const commons = process.env.COMMONS_API_KEY
+  ? createOpenAICompatible({ name: 'commons', baseURL: process.env.COMMONS_BASE_URL ?? 'https://api.commonsmade.com/v1', apiKey: process.env.COMMONS_API_KEY, supportsStructuredOutputs: true })
+  : null
 const venice = process.env.VENICE_API_KEY
   ? createOpenAICompatible({ name: 'venice', baseURL: 'https://api.venice.ai/api/v1', apiKey: process.env.VENICE_API_KEY, supportsStructuredOutputs: true })
   : null
 const openrouter = process.env.OPENROUTER_API_KEY
   ? createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY })
   : null
-export const HAS_MODEL = Boolean(venice || openrouter || process.env.AI_GATEWAY_API_KEY || process.env.ANTHROPIC_API_KEY)
+export const HAS_MODEL = Boolean(commons || venice || openrouter || process.env.AI_GATEWAY_API_KEY || process.env.ANTHROPIC_API_KEY)
 
 // Model names differ per provider; SIMPANG_MAIN_MODEL / SIMPANG_SCAN_MODEL override the defaults.
 // Scan: measured 2026-09-06 on Venice. gpt-56-luna 18s for 5 good divergences; gpt-4o-mini 4s but
 // shallow; deepseek/gemma think first for 10-30s; claude-sonnet-5 22s and expensive.
 // Prefetch and the classifier need a NON-reasoning model: luna spends all 700 output tokens
 // thinking and returns empty text (finishReason: length).
-const ids = venice
+// The Commons ids are UNVERIFIED: GET /v1/models needs a token, so these are read off the model
+// picker in the dashboard, where one id appeared in full as `deepseek/deepseek-v4-pro`. Check them
+// against /v1/models on the first authenticated call and override with SIMPANG_*_MODEL if they differ.
+const ids = commons
+  ? { scan: 'openai/gpt-5.6-luna', main: 'deepseek/deepseek-v4-flash', prefetch: 'qwen/qwen3.7-flash' }
+  : venice
   ? { scan: 'openai-gpt-56-luna', main: 'claude-sonnet-5', prefetch: 'openai-gpt-4o-mini-2024-07-18' }
   : { scan: 'anthropic/claude-haiku-4.5', main: 'anthropic/claude-sonnet-5', prefetch: 'anthropic/claude-haiku-4.5' }
-const m = (id: string) => (venice ? venice.chatModel(id) : openrouter ? openrouter(id) : id)
+const m = (id: string) => (commons ? commons.chatModel(id) : venice ? venice.chatModel(id) : openrouter ? openrouter(id) : id)
+/** Which provider actually won the priority order. Only "commons" spends on the tokens board. */
+export const PROVIDER = commons ? 'commons' : venice ? 'venice' : openrouter ? 'openrouter' : HAS_MODEL ? 'gateway' : 'none'
 /** The ids actually in force after the env overrides. /api/health reports these: "configured"
  *  does not tell you whether a deployment is running the expensive model or the cheap one. */
 export const MODEL_IDS = {

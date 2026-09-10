@@ -91,7 +91,29 @@ vercel env add X402_BAZAAR_URL production   # the Commons catalog endpoint
 If it exposes a different shape, it needs a small adapter in `lib/bazaar.ts` — send the URL and
 the response shape.
 
-**The tokens-spent board reads 0.** The rules say every token spent since joining counts toward
-the leaderboard, "no toggles, no attribution". This entry was built against a personal Venice key,
-which appears not to register. The five judging criteria do not mention the board, so it may not
-matter — but it is worth asking the group or the organisers rather than assuming.
+**The tokens-spent board reads 0, and now we know why.** The dashboard counts "all-time *Commons*
+model usage" — tokens spent through Commons' own runtime, not tokens spent anywhere. This entry runs
+on a personal Venice key, so the board will read 0 however often it runs.
+
+Commons hosts an OpenAI-compatible API: an unauthenticated `GET https://api.commonsmade.com/v1/models`
+answers `{"detail":{"message":"Missing Commons token"}}`. The code is already pointed at it —
+set `COMMONS_API_KEY` and it takes priority over Venice, `/api/health` reports `provider: "commons"`.
+Two things are still unknown:
+
+- **Where a builder gets that token.** There is no API-keys route in the dashboard bundle, and the
+  API rejects unauthenticated calls with "Missing Privy token" elsewhere, so the token may be the
+  session JWT rather than something a user provisions. `/oauth/authorize` and
+  `/oidc/authorize/finalize` both exist, which suggests third-party token issuance is possible.
+- **The model ids.** `/v1/models` needs the token. The defaults in `lib/config.ts` are read off the
+  dashboard's model picker, where one id appeared in full as `deepseek/deepseek-v4-pro`; the other
+  two are guesses. Check them on the first authenticated call and override with `SIMPANG_*_MODEL`.
+
+Switching would also stop the Venice balance (~$6) draining and use the 600 free credits per month
+that reset on 1 Oct, plus the 150/day sitting unused.
+
+**Where the entry is submitted.** The dashboard SPA routes include `/hackathons`, `/hackathon2` and
+`/submissions2`; `GET https://api.commonsmade.com/hackathons` needs auth, but
+`/hackathons/public/release` answers publicly and currently returns a *different* event
+(`{"slug":"group-chats-2026","status":"open"}`). Whether an externally hosted build (this one lives
+on Vercel, not in the Commons builder library) can be registered as a public build is the open
+question, and it decides whether this entry can be submitted at all.
